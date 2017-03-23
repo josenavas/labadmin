@@ -37,6 +37,7 @@ class AGNewKitHandler(BaseHandler):
     def get(self):
         project_names = db.getProjectNames()
         remaining = len(db.get_unassigned_barcodes())
+
         self.render("ag_new_kit.html", projects=project_names,
                     currentuser=self.current_user, msg="", kitinfo=[],
                     fields="", remaining=remaining)
