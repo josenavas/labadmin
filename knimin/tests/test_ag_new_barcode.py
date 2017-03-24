@@ -69,7 +69,7 @@ class TestAGNewBarcodeHandler(TestHandlerBase):
         self.mock_login_admin()
         action = 'unknown'
         num_barcodes = 4
-        projects = ["American Gut Project"]
+        projects = db.getProjectNames()[:2]
         newProject = 'newProject' + str(os.getpid())
 
         # check that unkown action results in a response code 400
