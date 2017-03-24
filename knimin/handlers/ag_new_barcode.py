@@ -47,7 +47,7 @@ class AGBarcodeAssignedHandler(BaseHandler):
 class AGNewBarcodeHandler(BaseHandler):
     @authenticated
     def get(self):
-        project_names = list(map(xhtml_escape, db.getProjectNames()))
+        project_names = db.getProjectNames()
         remaining = len(db.get_unassigned_barcodes())
         self.render("ag_new_barcode.html", currentuser=self.current_user,
                     projects=project_names, barcodes=[], remaining=remaining,
@@ -80,15 +80,14 @@ class AGNewBarcodeHandler(BaseHandler):
                 msg = "ERROR! %s" % str(e)
             else:
                 tmp = "%d barcodes assigned to %s, please wait for download."
-                msg = tmp % (
-                    num_barcodes, ", ".join(map(xhtml_escape, projects)))
+                msg = tmp % (num_barcodes, ", ".join(projects))
 
         else:
             raise HTTPError(400, 'Unknown action: %s' % action)
 
-        project_names = list(map(xhtml_escape, db.getProjectNames()))
+        project_names = db.getProjectNames()
         remaining = len(db.get_unassigned_barcodes())
         self.render("ag_new_barcode.html", currentuser=self.current_user,
                     projects=project_names, remaining=remaining,
                     msg=msg, newbc=newbc, assignedbc=assignedbc,
-                    assign_projects=", ".join(map(xhtml_escape, projects)))
+                    assign_projects=", ".join(projects))
