@@ -27,4 +27,21 @@ class PMCondensePlatesHandler(BaseHandler):
 
     @authenticated
     def post(self):
-        pass
+        plate1 = self.get_argument('plate-1')
+        plate2 = self.get_argument('plate-2')
+        plate3 = self.get_argument('plate-3')
+        plate4 = self.get_argument('plate-4')
+        name = self.get_argument('name')
+        robot = self.get_argument('robot')
+        volume = self.get_argument('volume')
+
+        dna_plates = [(plate1, 0), (plate2, 1), (plate3, 2), (plate4, 3)]
+        plates = [plate1, plate2, plate3, plate4]
+        pos = [0, 1, 2, 3]
+        dna_plates = [(p, idx) for p, idx in zip(plates, pos) if p]
+        # Magic number 2 -> The only supported plate type here is
+        # a 384-well plate
+        plate_id = db.condense_dna_plates(
+            dna_plates, name, self.get_current_user(), robot, 2, volume)
+
+        self.redirect("/pm_quantify/?plate=%s" % plate_id)
