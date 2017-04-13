@@ -9,25 +9,24 @@
 import numpy as np
 
 
-def parse_plate_reader_output(fp):
+def parse_plate_reader_output(contents):
     """Parses the output of a plate reader
 
     Parameters
     ----------
-    fp : str
-        The path to the file
+    contents : str
+        The contents of the plate reader output
 
     Returns
     -------
     np.array of floats
         A 2D array of floats
     """
-    with open(fp, 'U') as f:
-        data = []
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('Curve'):
-                continue
-            data.append(line.split())
+    data = []
+    for line in contents.splitlines():
+        line = line.strip()
+        if not line or line.startswith('Curve'):
+            continue
+        data.append(line.split())
 
     return np.asarray(data, dtype=np.float)
