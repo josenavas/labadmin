@@ -1,0 +1,42 @@
+{% extends logged_in_index.html %}
+{% block head %}
+{% from json import dumps %}
+<script type="text/javascript">
+</script>
+{% end %}
+{% block content %}
+<h3>Prepare a new Target Gene library</h3>
+
+<div class="container">
+  <!-- First row of plates -->
+  <div class="row">
+    <div class="col-xs-6 form-group">
+      <label class="center-block text-center">DNA Plate 1</label>
+      <select class="form-control plate-select" id='plate-1-select'>
+        <option value='-1' selected>Choose a dna plate...</option>
+      </select>
+    </div>
+    <div class="col-xs-6 form-group">
+      <label class="center-block text-center">DNA Plate 2</label>
+      <select class="form-control plate-select" id='plate-2-select'>
+        <option value='-1' selected>Choose a dna plate...</option>
+      </select>
+    </div>
+  </div>
+  <!-- Second row of plates -->
+  <div class="row">
+    <div class="col-xs-6 form-group">
+      <label class="center-block text-center">DNA Plate 3</label>
+      <select class="form-control plate-select" id='plate-3-select'>
+        <option value='-1' selected>Choose a dna plate...</option>
+      </select>
+    </div>
+    <div class="col-xs-6 form-group">
+      <label class="center-block text-center">DNA Plate 4</label>
+      <select class="form-control plate-select" id='plate-4-select'>
+        <option value='-1' selected>Choose a dna plate...</option>
+      </select>
+    </div>
+  </div>
+</div>
+{% end %}
