@@ -1,7 +1,7 @@
 from __future__ import unicode_literals
 from contextlib import contextmanager
 from collections import defaultdict, namedtuple
-from itertools import chain
+from itertools import chain, zip_longest
 from os import walk
 from os.path import join, splitext, isdir, abspath
 from copy import copy
@@ -3254,77 +3254,6 @@ class KniminAccess(object):
             TRN.add(sql, [plate_id])
             TRN.execute()
 
-    def get_sequencers(self):
-        """Retrieves a list of available options for sequencers
-
-        Returns
-        -------
-        list of dict
-            {id: int, name: str, platform: str, instrument_model: str}
-        """
-        with TRN:
-            sql = """SELECT sequencer_id AS id, name, platform,
-                            instrument_model
-                     FROM pm.sequencer
-                     ORDER BY id"""
-            TRN.add(sql)
-            return [dict(x) for x in TRN.execute_fetchindex()]
-
-    def get_reagent_kit_lots(self):
-        """Retrieves a list of available reagent kit lots
-
-        Returns
-        -------
-        list of dict
-            {id: int, name: str, notes: str, reagent_kit_type: str}
-        """
-        with TRN:
-            sql = """SELECT reagent_kit_lot_id AS id, name, notes,
-                            reagent_kit_type
-                     FROM pm.reagent_kit_lot
-                     ORDER BY reagent_kit_lot_id DESC"""
-            TRN.add(sql)
-            return [dict(x) for x in TRN.execute_fetchindex()]
-
-    def get_or_create_reagent_kit_lot(self, name, reagent_kit_type):
-        """Retrieves the id of the reagent kit lot
-
-        If the reagent kit lot with the given name doesn't exist, it will
-        create it and return the id of the newly created value
-
-        Parameters
-        ----------
-        name : str
-            The name of the reagent kit lot
-        reagent_kit_type : str
-            The reagent kit type
-        """
-        with TRN:
-            # Insert if it doesn't exist
-            sql = """INSERT INTO pm.reagent_kit_lot (name, reagent_kit_type)
-                        SELECT %s, %s
-                        WHERE NOT EXISTS(SELECT 1 FROM pm.reagent_kit_lot
-                                         WHERE name = %s
-                                            AND reagent_kit_type = %s)
-                        RETURNING reagent_kit_lot_id"""
-            TRN.add(sql, [name, reagent_kit_type, name, reagent_kit_type])
-            res = TRN.execute_fetchindex()
-            if res:
-                # This means that the previous sql call inserted a new value
-                # so we just need to return the value
-                # Magic numbers [0][0] - There is only one row and with
-                # a single value
-                return res[0][0]
-
-            # If the code reaches this point it means that the previous sql
-            # call did not insert anything, i.e. the option already existed
-            # return the id of that option
-            sql = """SELECT reagent_kit_lot_id
-                     FROM pm.reagent_kit_lot
-                     WHERE name = %s AND reagent_kit_type = %s"""
-            TRN.add(sql, [name, reagent_kit_type])
-            return TRN.execute_fetchlast()
-
     def get_property_options(self, prop):
         """Retrieves a list of available options for a property
 
@@ -3952,6 +3881,76 @@ class KniminAccess(object):
             # list into the desired output: [plate_id, plate_id, ...]
             return list(chain.from_iterable(chain.from_iterable(res)))
 
+    def quantify_targeted_plate(self, plate_id, data, vals):
+        """Adds quantification information to the target plate
+
+        Parameters
+        ----------
+        plate_id : int
+            The target plate id
+        data : str
+            Which information to add, it can be 'raw_concentration' or
+            'mod_concentration'.
+        vals : 2d numpy array of floats
+            The per-well DNA concentration
+
+        Raises
+        ------
+        ValueError
+            If data is not one of the valid values, see Parameters
+            If vals shape is not the same than the plate
+
+        Notes
+        -----
+            You always will need to first add raw_concentration as it's an
+            insert and mod_concentration, which is an update
+        """
+        valid_data = ['raw_concentration', 'mod_concentration']
+        if data not in valid_data:
+            raise ValueError(
+                "Not valid data value: %s, should be: %s" % (data, valid_data))
+
+        with TRN:
+            sql = """SELECT rows, cols
+                     FROM pm.plate_type
+                        JOIN pm.targeted_primer_plate USING (plate_type_id)
+                        JOIN pm.targeted_plate USING (targeted_primer_plate_id)
+                        WHERE targeted_plate_id = %s"""
+            TRN.add(sql, [plate_id])
+            rp = dict(TRN.execute_fetchindex()[0])
+            vals_rows, vals_cols = vals.shape
+            if vals_rows != rp['rows'] or vals_cols != rp['cols']:
+                raise ValueError('values wrong shape, should '
+                                 'be: (%d, %d) but is: (%d, %d)' % (
+                                    rp['rows'], rp['cols'], vals_rows,
+                                    vals_cols))
+
+            if data == 'raw_concentration':
+                # we assume we want to clean the info
+                sql = """DELETE FROM pm.targeted_plate_well_values
+                         WHERE targeted_plate_id = %s"""
+                TRN.add(sql, [plate_id])
+
+                sql = """INSERT INTO pm.targeted_plate_well_values
+                            (targeted_plate_id, row, col, raw_concentration)
+                         VALUES (%s, %s, %s, %s)"""
+            else:
+                sql = """UPDATE pm.targeted_plate_well_values
+                         SET mod_concentration = %s
+                         WHERE targeted_plate_id = %s AND
+                            row = %s AND col = %s"""
+            sql_args = []
+            for row in np.arange(vals_rows):
+                for col in np.arange(vals_cols):
+                    if data == 'raw_concentration':
+                        sql_args.append((plate_id, row, col, vals[row, col]))
+                    else:
+                        sql_args.append((vals[row, col], plate_id, row, col))
+
+            TRN.add(sql, sql_args, many=True)
+
+            TRN.execute()
+
     def read_targeted_plate(self, plate_id):
         """Returns the information of the targeted plate
 
@@ -3978,6 +3977,7 @@ class KniminAccess(object):
                             p.name as name,
                             email, created_on, dna_plate_id,
                             targeted_primer_plate_id as primer_plate_id,
+                            pt.rows as rows, pt.cols as cols,
                             mm.name as master_mix_lot,
                             r.name as robot,
                             t300.name as tm300_8_tool,
@@ -3989,6 +3989,8 @@ class KniminAccess(object):
                         JOIN pm.tm300_8_tool t300 USING (tm300_8_tool_id)
                         JOIN pm.tm50_8_tool t50 USING (tm50_8_tool_id)
                         JOIN pm.water_lot w USING (water_lot_id)
+                        JOIN pm.plate_type pt ON
+                            p.targeted_primer_plate_id = plate_type_id
                      WHERE targeted_plate_id = %s"""
             TRN.add(sql, [plate_id])
             res = TRN.execute_fetchindex()
@@ -3996,7 +3998,28 @@ class KniminAccess(object):
                 raise ValueError("Target Gene plate %s does not exist"
                                  % plate_id)
             # Magic number 0 -> there is only 1 result row
-            return dict(res[0])
+            res = dict(res[0])
+            rows = res.pop('rows')
+            cols = res.pop('cols')
+
+            # get well values
+            res['raw_concentration'] = None
+            res['mod_concentration'] = None
+            sql = """SELECT row, col, raw_concentration, mod_concentration
+                     FROM pm.targeted_plate_well_values
+                     WHERE targeted_plate_id = %s"""
+            TRN.add(sql, [plate_id])
+            vals = TRN.execute_fetchindex()
+            if vals:
+                res['raw_concentration'] = np.zeros((rows, cols))
+                for (row, col, raw_concentration, mod_concentration) in vals:
+                    res['raw_concentration'][row, col] = raw_concentration
+                    if mod_concentration is not None:
+                        if res['mod_concentration'] is None:
+                            res['mod_concentration'] = np.zeros((rows, cols))
+                        res['mod_concentration'][row, col] = mod_concentration
+
+            return res
 
     def delete_targeted_plate(self, plate_id):
         """Deletes a targeted plate
@@ -4012,6 +4035,10 @@ class KniminAccess(object):
             If the targeted plate does not exist
         """
         with TRN:
+            sql = """DELETE FROM pm.targeted_plate_well_values
+                     WHERE targeted_plate_id = %s"""
+            TRN.add(sql, [plate_id])
+
             sql = """DELETE FROM pm.targeted_plate
                      WHERE targeted_plate_id = %s
                      RETURNING targeted_plate_id"""
@@ -4270,7 +4297,9 @@ class KniminAccess(object):
         """
         with TRN:
             sql = """SELECT sp.shotgun_plate_id AS id, sp.name as name, email,
-                        created_on, prr.name AS robot, plate_type_id, volume,
+                        created_on, prr.name AS robot, volume,
+                        pt.plate_type_id as plate_type_id, pt.cols as cols,
+                        pt.rows as rows,
                         dna_quantification_date AS dna_q_date,
                         dna_quantification_email AS dna_q_mail,
                         dna_quantification_volume AS dna_q_volume,
@@ -4282,10 +4311,12 @@ class KniminAccess(object):
                      LEFT JOIN pm.plate_reader as plr USING (plate_reader_id)
                      LEFT JOIN pm.condensed_plates as cp
                         USING (shotgun_plate_id)
+                     LEFT JOIN pm.plate_type as pt
+                        USING (plate_type_id)
                      WHERE shotgun_plate_id = %s
-                     GROUP BY id, sp.name, email, created_on, robot,
-                        plate_type_id, volume, dna_q_date, dna_q_mail,
-                        dna_q_volume, plate_reader_id"""
+                     GROUP BY id, sp.name, email, created_on, robot, volume,
+                        pt.plate_type_id, pt.cols, pt.rows, dna_q_date,
+                        dna_q_mail, dna_q_volume, plate_reader_id"""
             TRN.add(sql, [plate_id])
             res = TRN.execute_fetchindex()
             if not res:
@@ -4295,6 +4326,23 @@ class KniminAccess(object):
             res = dict(res[0])
             res['condensed_plates'] = [eval(v)
                                        for v in eval(res['condensed_plates'])]
+            # Get positions
+            sql = """SELECT row, col, sample_id, dna_concentration
+                     FROM pm.shotgun_plate_layout
+                     WHERE shotgun_plate_id = %s"""
+            TRN.add(sql, [plate_id])
+            values = TRN.execute_fetchindex()
+            # getting rows/cols and discarding them from res
+            rows = res.pop('rows')
+            cols = res.pop('cols')
+            res['shotgun_plate_layout'] = [[{
+                'sample_id': None, 'dna_concentration': None}
+                for c in range(cols)] for r in range(rows)]
+            for (row, col, sample_id, dna_concentration) in values:
+                res['shotgun_plate_layout'][row][col]['sample_id'] = sample_id
+                res['shotgun_plate_layout'][row][col][
+                    'dna_concentration'] = dna_concentration
+
             return res
 
     def delete_shotgun_plate(self, plate_id):
@@ -4321,6 +4369,10 @@ class KniminAccess(object):
                 for id_ in res:
                     self.delete_normalized_shotgun_plate(id_[0])
 
+            sql = """DELETE FROM pm.shotgun_plate_layout
+                     WHERE shotgun_plate_id = %s"""
+            TRN.add(sql, [plate_id])
+
             sql = """DELETE FROM pm.condensed_plates
                      WHERE shotgun_plate_id = %s"""
             TRN.add(sql, [plate_id])
@@ -4334,6 +4386,91 @@ class KniminAccess(object):
                 # If the output from the SQL query is empty, it means that the
                 # plate_id did not exist
                 raise ValueError('Shotgun Plate %s does not exist' % plate_id)
+
+    def quantify_shotgun_plate(self, shotgun_plate_id, email, volume,
+                               plate_reader, plate_concentration):
+        """Adds the DNA quantification information to the shotgun plate
+
+        Parameters
+        ----------
+        shotgun_plate_id : int
+            The shotgun plate id
+        email : str
+            The email of the user
+        volume : float
+            The volume used for DNA quantification
+        plate_reader : str
+            The plate reader used
+        plate_concentration : 2d numpy array of floats
+            The per-well DNA concentration
+
+        Raises
+        ------
+        ValueError
+            If `plate_concentration` dimensions doesn't match the plate type
+        """
+        with TRN:
+            sgp = self.read_shotgun_plate(shotgun_plate_id)
+            rp = dict(self.read_plate_type(sgp['plate_type_id']))
+            pc_rows, pc_cols = plate_concentration.shape
+            processing_robot_id = self.get_or_create_property_option_id(
+                "plate_reader", plate_reader)
+
+            if pc_rows != rp['rows'] or pc_cols != rp['cols']:
+                raise ValueError('plate_concentration wrong shape, should '
+                                 'be: (%d, %d) but is: (%d, %d)' % (
+                                    rp['rows'], rp['cols'], pc_rows, pc_cols))
+            # we expect 4 plates, thus 4 empty rows
+            orders = [[], [], [], []]
+            for pid, order in sgp['condensed_plates']:
+                sp_id = self.read_dna_plate(pid)['sample_plate_id']
+                orders[order] = self.read_sample_plate_layout(sp_id)
+
+            # now we start creating the merged plate
+            data = []
+            for rid, row in enumerate(zip_longest(*orders, fillvalue=[])):
+                for cid, (a, b, c, d) in enumerate(zip_longest(*row,
+                                                   fillvalue=None)):
+                    new_cid = 2 * cid
+                    new_rid = 2 * rid
+                    if a is not None:
+                        data.append([
+                            shotgun_plate_id, new_rid, new_cid,
+                            a['sample_id'],
+                            plate_concentration[new_rid, new_cid]])
+                    if b is not None:
+                        data.append([
+                            shotgun_plate_id, new_rid, 1 + new_cid,
+                            b['sample_id'],
+                            plate_concentration[new_rid, 1 + new_cid]])
+                    if c is not None:
+                        data.append([
+                            shotgun_plate_id, 1 + new_rid, new_cid,
+                            c['sample_id'],
+                            plate_concentration[1 + new_rid, new_cid]])
+                    if d is not None:
+                        data.append([
+                            shotgun_plate_id, 1 + new_rid, 1 + new_cid,
+                            d['sample_id'],
+                            plate_concentration[1 + new_rid, 1 + new_cid]])
+
+            # cleaning DB
+            sql = """DELETE FROM pm.shotgun_plate_layout
+                     WHERE shotgun_plate_id = %s"""
+            TRN.add(sql, [shotgun_plate_id])
+            # inserting new values
+            sql = """INSERT INTO pm.shotgun_plate_layout
+                        (shotgun_plate_id, row, col, sample_id,
+                         dna_concentration)
+                     VALUES (%s, %s, %s, %s, %s)"""
+            TRN.add(sql, data, many=True)
+            # finish by updating the original shotgun_plate_id
+            sql = """UPDATE pm.shotgun_plate
+                     SET plate_reader_id = %s, volume = %s
+                     WHERE shotgun_plate_id = %s"""
+            TRN.add(sql, [processing_robot_id, volume, shotgun_plate_id])
+
+            TRN.execute()
 
     def get_pool_list(self):
         """Gets the list of all pools
@@ -4357,7 +4494,8 @@ class KniminAccess(object):
             return [dict(row) for row in TRN.execute_fetchindex()]
 
     def create_sequencing_run(self, pool_id, email, sequencer, reagent_type,
-                              reagent_lot):
+                              reagent_lot, platform, instrument_model, assay,
+                              fwd_cycles, rev_cycles):
         """Stores the sequencing run information
 
         Parameters
@@ -4366,12 +4504,22 @@ class KniminAccess(object):
             The pool being sequenced
         email : str
             The email of the user preparing the run
-        sequencer : id
-            The sequencer id
+        sequencer : str
+            The specific sequencer
         reagent_type : str
             The reagent type
         reagent_lot : str
             The reagent lot
+        platform : str
+            The sequencing platform (e.g., Illumina)
+        instrument_model : str
+            The model of the instrument (e.g., MiSeq)
+        assay : str
+            The assay used (e.g., Kapa Hyper Plus)
+        fwd_cycles : int
+            The number of forward cycles used.
+        rev_cycles : int
+            The number of reverse cycles used.
 
         Returns
         -------
@@ -4379,15 +4527,17 @@ class KniminAccess(object):
             The run id
         """
         with TRN:
-            reagent_kit_id = self.get_or_create_reagent_kit_lot(
-                reagent_lot, reagent_type)
             sql = """INSERT INTO pm.run (name, email, created_on,
-                                         sequencer_id, run_pool_id,
-                                         reagent_kit_lot_id)
-                     VALUES (%s, %s, now(), %s, %s, %s)
+                                         sequencer, run_pool_id,
+                                         reagent_type, reagent_lot, platform,
+                                         instrument_model, assay, fwd_cycles,
+                                         rev_cycles)
+                     VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
                      RETURNING run_id"""
             TRN.add(sql, [self.read_pool(pool_id)['name'], email,
-                          sequencer, pool_id, reagent_kit_id])
+                          sequencer, pool_id, reagent_type, reagent_lot,
+                          platform, instrument_model, assay, fwd_cycles,
+                          rev_cycles])
             return TRN.execute_fetchlast()
 
     def read_sequencing_run(self, run_id):
@@ -4412,11 +4562,10 @@ class KniminAccess(object):
         """
         with TRN:
             sql = """SELECT run_id AS id, r.name AS name, email, created_on,
-                            r.notes, s.name AS sequencer,
-                            r.run_pool_id AS pool_id, k.name AS reagent_kit_lot
+                            r.notes, sequencer, reagent_type, reagent_lot,
+                            r.run_pool_id AS pool_id, platform,
+                            instrument_model, assay, fwd_cycles, rev_cycles
                      FROM pm.run r
-                        JOIN pm.sequencer s USING (sequencer_id)
-                        JOIN pm.reagent_kit_lot k USING (reagent_kit_lot_id)
                      WHERE run_id = %s"""
             TRN.add(sql, [run_id])
             res = TRN.execute_fetchindex()

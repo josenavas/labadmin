@@ -1194,28 +1194,6 @@ class TestDataAccess(TestCase):
         err = 'Sample plate ID %s does not exist.' % plate_id
         self.assertEqual(str(context.exception), err)
 
-    def test_get_sequencers(self):
-        obs = db.get_sequencers()
-        exp = [{'id': 1, 'name': 'Knight Lab In house MiSeq',
-                'platform': 'Illumina', 'instrument_model': 'MiSeq'}]
-        self.assertEqual(obs, exp)
-
-    def test_get_reagent_kit_lots(self):
-        obs = db.get_reagent_kit_lots()
-        exp = [{'id': 1, 'name': 'MS1234', 'notes': None,
-                'reagent_kit_type': 'MiSeq v3 150 cycle'}]
-        self.assertEqual(obs, exp)
-
-    def test_get_or_create_reagent_kit_lot(self):
-        obs = db.get_or_create_reagent_kit_lot('MS1234', 'MiSeq v3 150 cycle')
-        self.assertEqual(obs, 1)
-
-        obs = db.get_or_create_reagent_kit_lot('MS4321', 'MiSeq v3 150 cycle')
-        self._clean_up_funcs.append(
-            partial(db.delete_property_option, "reagent_kit_lot", obs))
-        # The actual id changes
-        self.assertGreater(obs, 1)
-
     def test_get_property_options(self):
         # Get available extraction robots
         obs = db.get_property_options("extraction_robot")
@@ -1614,16 +1592,54 @@ class TestDataAccess(TestCase):
              'dna_plate_id': dna_plate_ids[0], 'primer_plate_id': 1,
              'master_mix_lot': '14459', 'robot': 'ROBE',
              'tm300_8_tool': '208484Z', 'tm50_8_tool': '108364Z',
+             'raw_concentration': None, 'mod_concentration': None,
              'water_lot': 'RNBD9959'},
             {'id': obs_ids[1], 'name': 'Test plate 2', 'email': 'test',
              'dna_plate_id': dna_plate_ids[1], 'primer_plate_id': 2,
              'master_mix_lot': '14459', 'robot': 'ROBE',
              'tm300_8_tool': '208484Z', 'tm50_8_tool': '108364Z',
+             'raw_concentration': None, 'mod_concentration': None,
              'water_lot': 'RNBD9959'}]
         for obs_id, exp in zip(obs_ids, exp):
             obs = db.read_targeted_plate(obs_id)
             self.assertTrue(before <= obs.pop('created_on') <= after)
+            for k in obs:
+                self.assertEqual(obs[k], exp[k])
             self.assertEqual(obs, exp)
+
+        # testing quantify_targeted_plate on only one of the plates
+        pid = obs_ids[0]
+        vals = np.random.rand(8, 12)
+        # this shouldn't change anything as raw_concentration should be first
+        db.quantify_targeted_plate(pid, 'mod_concentration', vals)
+        obs = db.read_targeted_plate(pid)
+        self.assertIsNone(obs['raw_concentration'])
+        self.assertIsNone(obs['mod_concentration'])
+        # this should change only raw_concentration
+        db.quantify_targeted_plate(pid, 'raw_concentration', vals)
+        obs = db.read_targeted_plate(pid)
+        npt.assert_almost_equal(obs['raw_concentration'], vals, decimal=5)
+        self.assertIsNone(obs['mod_concentration'])
+        # now changing mod_concentration
+        vals_mod = np.random.rand(8, 12)
+        db.quantify_targeted_plate(pid, 'mod_concentration', vals_mod)
+        obs = db.read_targeted_plate(pid)
+        npt.assert_almost_equal(obs['raw_concentration'], vals, decimal=5)
+        npt.assert_almost_equal(obs['mod_concentration'], vals_mod, decimal=5)
+
+        # testing errors
+        with self.assertRaises(ValueError) as ctx:
+            db.quantify_targeted_plate(obs_ids[0], 'should fail', vals)
+        self.assertEqual(
+            ctx.exception.message, "Not valid data value: should fail, should "
+            "be: [u'raw_concentration', u'mod_concentration']")
+
+        vals = np.random.rand(16, 24)
+        with self.assertRaises(ValueError) as ctx:
+            db.quantify_targeted_plate(obs_ids[0], 'raw_concentration', vals)
+        self.assertEqual(
+            ctx.exception.message, 'values wrong shape, should be: (8, 12) '
+            'but is: (16, 24)')
 
     def test_read_targeted_plate(self):
         # Success is already tested in "test_prepare_targeted_libraries"
@@ -1694,28 +1710,59 @@ class TestDataAccess(TestCase):
             db.delete_pool(0)
         self.assertEqual(ctx.exception.message, "Pool 0 does not exist")
 
-    def test_condense_dna_plates(self):
+    def _generate_condense_dna_plates(self, just_one_plate=False):
         # study creation
-        db.create_study(9999, title='LabAdmin test project',
+        study_id = 9999
+        db.create_study(study_id, title='LabAdmin test project',
                         alias='LTP', jira_id='KL9999')
-        self._clean_up_funcs.append(partial(db.delete_study, 9999))
+        self._clean_up_funcs.append(partial(db.delete_study, study_id))
 
         # plates creation
         dna_plates = []
         exp_robot = db.get_property_options("extraction_robot")[0]
         exp_kit = db.get_property_options("extraction_kit_lot")[0]
         exp_tool = db.get_property_options("extraction_tool")[0]
-        for i in range(4):
-            pid = db.create_sample_plate('Test %s' % i, 2, 'test', [9999])
+        samples = []
+        pids = []
+        # gonna create the 4 color plates
+        for i, color in enumerate(['b', 'r', 'y', 'g']):
+            pid = db.create_sample_plate('Test %s' % color, 1, 'test',
+                                         [study_id])
             self._clean_up_funcs.insert(
                 0, partial(db.delete_sample_plate, pid))
+            layout = []
+            for r in range(8):
+                row = []
+                for c in range(12):
+                    # creating sample names
+                    sample = '%d.%s.%s.%s' % (study_id, color, r, c)
+                    samples.append(sample)
+                    row.append({'sample_id': sample, 'name': None,
+                                'notes': None})
+                layout.append(row)
+            db.set_study_samples(study_id, samples)
+            db.write_sample_plate_layout(pid, layout)
+            pids.append(pid)
 
-            dp_pid = db.extract_sample_plates(
-                [pid], 'test', exp_robot['name'], exp_kit['name'],
-                exp_tool['name'])[0]
+        # creating dna plates
+        plate_to_use = 2
+        if just_one_plate:
+            pids = [pids[plate_to_use]]
+
+        pid_plates = db.extract_sample_plates(
+            pids, 'test', exp_robot['name'], exp_kit['name'],
+            exp_tool['name'])
+
+        # formating dna_plates for the next step
+        dna_plates = []
+        for i, v in enumerate(pid_plates):
             self._clean_up_funcs.insert(
-                0, partial(db.delete_dna_plate, dp_pid))
-            dna_plates.append((dp_pid, i))
+                0, partial(db.delete_dna_plate, v))
+            dna_plates.append((v, i))
+
+        if just_one_plate:
+            # it's always the only one [0]
+            dna_plates = [(pid_plates[0], plate_to_use)]
 
         email = 'test'
         name = "full plate"
@@ -1725,6 +1772,11 @@ class TestDataAccess(TestCase):
         cid = db.condense_dna_plates(dna_plates, name, email,
                                      robot, plate_type, volume)
         self._clean_up_funcs.insert(0, partial(db.delete_shotgun_plate, cid))
+
+        return cid, dna_plates
+
+    def test_condense_dna_plates(self):
+        cid, dna_plates = self._generate_condense_dna_plates()
         obs = db.read_shotgun_plate(cid)
         # not testing time to avoid problems
         del obs['created_on']
@@ -1732,15 +1784,12 @@ class TestDataAccess(TestCase):
         self.assertItemsEqual(obs['condensed_plates'], dna_plates)
         del obs['condensed_plates']
         exp = {
-            'plate_type_id': plate_type,
-            'dna_q_volume': None,
-            'name': name,
-            'robot': 'ROBE',
-            'dna_q_mail': None, 'volume': volume,
-            'plate_reader_id': None,
-            'email': email,
-            'dna_q_date': None,
-            'id': cid}
+            'plate_type_id': 2L, 'dna_q_volume': None, 'name': "full plate",
+            'robot': 'ROBE', 'dna_q_mail': None, 'volume': 0.22,
+            'plate_reader_id': None, 'email': 'test', 'dna_q_date': None,
+            'id': cid, 'shotgun_plate_layout': [[{
+                'sample_id': None, 'dna_concentration': None}
+                for c in range(24)] for r in range(16)]}
         self.assertEqual(obs, exp)
 
     def test_condense_dna_plates_errors(self):
@@ -1821,6 +1870,91 @@ class TestDataAccess(TestCase):
         self.assertEqual(
             ctx.exception.message, "Shotgun Plate 100000 does not exist")
 
+    def test_quantify_shotgun_plate(self):
+        sgp_id, dna_plates = self._generate_condense_dna_plates()
+        email = 'test'
+        volume = .002
+        plate_reader = 'PR1234'
+        plate_concentration = np.random.rand(16, 24)
+        db.quantify_shotgun_plate(sgp_id, email, volume, plate_reader,
+                                  plate_concentration)
+        obs = db.read_shotgun_plate(sgp_id)
+        # not testing time to avoid problems
+        del obs['created_on']
+        # just testing dna_plates
+        self.assertItemsEqual(obs['condensed_plates'], dna_plates)
+        del obs['condensed_plates']
+        # testing layout, we only gonna check 10 specific values
+        test_vals = [
+            (5, 3, '9999.g.2.1'), (12, 10, '9999.b.6.5'),
+            (11, 11, '9999.g.5.5'), (14, 5, '9999.r.7.2'),
+            (10, 9, '9999.r.5.4'), (8, 8, '9999.b.4.4'),
+            (5, 15, '9999.g.2.7'), (7, 0, '9999.y.3.0'),
+            (12, 9, '9999.r.6.4'), (15, 4, '9999.y.7.2')]
+        for r, c, sn in test_vals:
+            to_test = obs['shotgun_plate_layout'][r][c]
+            self.assertEqual(to_test['sample_id'], sn)
+            npt.assert_almost_equal(
+                to_test['dna_concentration'], plate_concentration[r, c],
+                decimal=5)
+        del obs['shotgun_plate_layout']
+        exp = {
+            'plate_type_id': 2L,
+            'dna_q_volume': None,
+            'name': 'full plate',
+            'dna_q_mail': None,
+            'robot': 'ROBE',
+            'volume': 0.002,
+            'plate_reader_id': 1L,
+            'email': 'test',
+            'dna_q_date': None,
+            'id': sgp_id
+        }
+        self.assertEqual(obs, exp)
+
+    def test_quantify_shotgun_plate_one_plate(self):
+        sgp_id, dna_plates = self._generate_condense_dna_plates(True)
+        email = 'test'
+        volume = .002
+        plate_reader = 'PR1234'
+        plate_concentration = np.random.rand(16, 24)
+        db.quantify_shotgun_plate(sgp_id, email, volume, plate_reader,
+                                  plate_concentration)
+        obs = db.read_shotgun_plate(sgp_id)
+        # not testing time to avoid problems
+        del obs['created_on']
+        # just testing dna_plates
+        self.assertItemsEqual(obs['condensed_plates'], dna_plates)
+        del obs['condensed_plates']
+        # testing layout, we only gonna check 10 specific values
+        test_vals = [
+            (5, 3, None), (12, 10, None),
+            (11, 11, None), (14, 5, None),
+            (10, 9, None), (8, 8, None),
+            (5, 15, None), (7, 0, '9999.y.3.0'),
+            (12, 9, None), (15, 4, '9999.y.7.2')]
+        for r, c, sn in test_vals:
+            to_test = obs['shotgun_plate_layout'][r][c]
+            self.assertEqual(to_test['sample_id'], sn)
+            if sn is not None:
+                npt.assert_almost_equal(
+                    to_test['dna_concentration'], plate_concentration[r, c],
+                    decimal=5)
+        del obs['shotgun_plate_layout']
+        exp = {
+            'plate_type_id': 2L,
+            'dna_q_volume': None,
+            'name': 'full plate',
+            'dna_q_mail': None,
+            'robot': 'ROBE',
+            'volume': 0.002,
+            'plate_reader_id': 1L,
+            'email': 'test',
+            'dna_q_date': None,
+            'id': sgp_id
+        }
+        self.assertEqual(obs, exp)
+
     def test_get_pool_list(self):
         self.assertEqual(db.get_pool_list(), [])
 
@@ -1838,7 +1972,10 @@ class TestDataAccess(TestCase):
         # Create the run
         before = datetime.datetime.now()
         run_id = db.create_sequencing_run(
-            pool_ids[0], 'test', 1, 'MiSeq v3 150 cycle', 'MS1234')
+            pool_ids[0], 'test', 'Knight Lab In house MiSeq',
+            'MiSeq v3 150 cycle', 'MS1234',
+            'Illumina', 'MiSeq', 'Kapa Hyper Plus', 151, 151)
+
         after = datetime.datetime.now()
         self._clean_up_funcs.insert(
             0, partial(db.delete_sequencing_run, run_id))
@@ -1847,7 +1984,12 @@ class TestDataAccess(TestCase):
         self.assertTrue(before <= obs.pop('created_on') <= after)
         exp = {'id': run_id, 'name': 'LabAdmin test pool', 'notes': None,
                'sequencer': 'Knight Lab In house MiSeq',
-               'pool_id': pool_ids[0], 'reagent_kit_lot': 'MS1234',
+               'pool_id': pool_ids[0],
+               'platform': 'Illumina', 'instrument_model': 'MiSeq',
+               'reagent_type': 'MiSeq v3 150 cycle',
+               'reagent_lot': 'MS1234',
+               'assay': 'Kapa Hyper Plus',
+               'fwd_cycles': 151, 'rev_cycles': 151,
                'email': 'test'}
         self.assertEqual(obs, exp)
 
