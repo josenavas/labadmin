@@ -48,7 +48,7 @@
     });
 
     if (success) {
-      var form = $('<form>', {action: '/pm_pool_plates/', method: 'post'});
+      var form = $('<form>', {action: '/pm_targeted_pool/', method: 'post'});
       var fields = {'pools': JSON.stringify(pools), 'name': runPoolName};
       $.each(fields, function(key, val) {
         $('<input>').attr({type: "hidden", name: key, value: val}).appendTo(form);
