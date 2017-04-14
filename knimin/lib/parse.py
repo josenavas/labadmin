@@ -12,6 +12,10 @@ import numpy as np
 def parse_plate_reader_output(contents):
     """Parses the output of a plate reader
 
+    The format supported here is a tab delimited file in which the first line
+    contains the fitting curve followed by (n) blank lines and then a tab
+    delimited matrix with the values
+
     Parameters
     ----------
     contents : str

@@ -84,19 +84,26 @@
     </div>
     <!-- Plates pool -->
     <div class="tag-controls">
-    {% for plate in plates %}
+    <!--
+        TODO: We are going to support multiple plates, but the current
+        parser only supports a single plate per file. I have not received an
+        example file with multiple plates so I couldn't update the parser.
+        Instead of removing the commented out code, I prefer to have it
+        here since we will use it at some point.
+    -->
+    {% if plates %}
       <div class="entry row">
         <div class="col-xs-7 form-group">
           <select class="form-control plate-select" name="plate" required>
             <option></option>
-            <option value='{{plate['id']}}' selected>(ID: {{plate['id']}}) {{plate['name']}} - {{plate['date']}}</option>
+            <option value='{{plates[0]['id']}}' selected>(ID: {{plates[0]['id']}}) {{plates[0]['name']}} - {{plates[0]['date']}}</option>
           </select>
         </div>
         <div class="col-xs-1 form-group">
-          <button class="btn btn-info btn-remove form-control" type="button"><span class="glyphicon glyphicon-minus"></span></button>
+          <!-- <button class="btn btn-info btn-remove form-control" type="button"><span class="glyphicon glyphicon-minus"></span></button> -->
         </div>
       </div>
-    {% end %}
+    {% else %}
       <div class="entry row">
         <div class="col-xs-7 form-group">
           <select class="form-control plate-select" name="plate" required>
@@ -104,10 +111,11 @@
           </select>
         </div>
         <div class="col-xs-1 form-group">
-          <button class="btn btn-info btn-remove form-control" type="button"><span class="glyphicon glyphicon-minus"></span></button>
+          <!-- <button class="btn btn-info btn-remove form-control" type="button"><span class="glyphicon glyphicon-minus"></span></button> -->
         </div>
       </div>
     </div>
+    {% end %}
     <div class="row">
       <div class="col-xs-2 form-group">
         <button class="btn btn-primary form-control" type="submit">Upload</button>
