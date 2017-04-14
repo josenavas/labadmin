@@ -4060,8 +4060,9 @@ class KniminAccess(object):
                         JOIN pm.tm300_8_tool t300 USING (tm300_8_tool_id)
                         JOIN pm.tm50_8_tool t50 USING (tm50_8_tool_id)
                         JOIN pm.water_lot w USING (water_lot_id)
-                        JOIN pm.plate_type pt ON
-                            p.targeted_primer_plate_id = plate_type_id
+                        JOIN pm.targeted_primer_plate tpp
+                            USING (targeted_primer_plate_id)
+                        JOIN pm.plate_type pt USING (plate_type_id)
                      WHERE targeted_plate_id = %s"""
             TRN.add(sql, [plate_id])
             res = TRN.execute_fetchindex()
