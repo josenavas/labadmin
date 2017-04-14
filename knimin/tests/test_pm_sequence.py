@@ -9,6 +9,7 @@ from unittest import main
 from functools import partial
 from tempfile import mkdtemp
 from os.path import join
+from tornado.escape import json_encode
 import re
 
 from knimin.tests.tornado_test_base import TestHandlerBase
@@ -239,10 +240,30 @@ class TestPMSequencingCompleteHandler(TestHandlerBase):
         with open(join(tmp_dir, 'LabAdmin_test_pool_I1.fastq.gz'), 'w') as f:
             f.write('\n')
 
-        data = {'run_id': run, 'run_path': tmp_dir}
         self.mock_login_admin()
+        data = {'run_id': run, 'run_path': tmp_dir, 'exit_status': 1,
+                'logs': json_encode(['/path/to/file.log',
+                                     '/another/path.log'])}
         response = self.post('/pm_sequencing_complete/', data=data)
         self.assertEqual(response.code, 200)
+
+        # We are just going to check one of the side effects of this call,
+        # since everything else is executed in the same function and tested
+        # somewhere else. Magic number 0 -> there is only one comment
+        obs = jira_handler.comments('TM%s-5' % study_id)[0]
+        exp = ("[CRITICAL]: FAILURE: Sequencing run LabAdmin test pool "
+               "(ID: %s). Logs:\n - /path/to/file.log\n - /another/path.log"
+               % run)
+        self.assertEqual(obs.body, exp)
+        obs.delete()
+
+        data = {'run_id': run, 'run_path': tmp_dir, 'exit_status': 0}
+        response = self.post('/pm_sequencing_complete/', data=data)
+        self.assertEqual(response.code, 200)
+
+        obs = jira_handler.comments('TM%s-5' % study_id)[0]
+        self.assertEqual(
+            obs.body, "Sequencing complete. Path to raw files: %s" % tmp_dir)
 
 
 if __name__ == '__main__':
