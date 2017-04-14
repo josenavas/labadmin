@@ -4168,7 +4168,7 @@ class KniminAccess(object):
             TRN.add(sql)
             return [dict(row) for row in TRN.execute_fetchindex()]
 
-    def pool_plates(self, pools, name, volume):
+    def pool_plates(self, pools, name, volume=5000):
         """Stores the pooling information
 
         Parameters
@@ -4178,7 +4178,7 @@ class KniminAccess(object):
             'percentage': float}
         name : str
             The name of the pool
-        volume : float
+        volume : float, optional
             The total volume of the pool
 
         Returns

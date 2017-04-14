@@ -29,6 +29,18 @@ def _get_targeted_plates(plates_arg):
     return all_plates, plates
 
 
+def _get_quantified_targeted_plates(plates_arg):
+    all_plates = []
+    plates = []
+    for plate in db.get_quantified_targeted_plate_list():
+        plate['date'] = plate['date'].isoformat()
+        all_plates.append(plate)
+        if plate['id'] in plates_arg:
+            plates.append(plate)
+
+    return all_plates, plates
+
+
 def _get_clean_targeted_plate_data(plate_id):
     # Get the plate information
     plate = db.read_targeted_plate(plate_id)
@@ -111,7 +123,15 @@ class PMTargetedPoolHandler(BaseHandler):
     @authenticated
     def get(self):
         plates_arg = map(int, self.get_arguments('plate'))
-        all_plates, plates = _get_targeted_plates(plates_arg)
+        all_plates, plates = _get_quantified_targeted_plates(plates_arg)
 
         self.render("pm_targeted_pool.html", all_plates=all_plates,
                     plates=plates)
+
+    @authenticated
+    def post(self):
+        pools = json_decode(self.get_argument('pools'))
+        name = self.get_argument('name')
+
+        pool_id = db.pool_plates(pools, name)
+        self.redirect('/pm_sequence/?pool_id=%s' % pool_id)

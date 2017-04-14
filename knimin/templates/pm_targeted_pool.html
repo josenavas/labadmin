@@ -32,33 +32,24 @@
       $("#pool-name-input").parents(':first').addClass('has-error');
     }
 
-    // Check the total percentage
-    $('.glyphicon-warning-sign').hide();
-    var totalPercent = parseFloat($('#total-percentage').val());
-    if (totalPercent > 100) {
-      success = false;
-      $('.pm-total').addClass('has-error');
-      $('.glyphicon-warning-sign').show();
-    }
-
     var pools = new Array();
     $.each($('.entry'), function (idx, entry) {
       $(entry).removeClass('has-error');
       var plateId = $(entry).find('.plate-select:first').val();
-      if (plateId === null) {
+      var plateDNAconc = $(entry).find('.pm-dna-conc:first').val();
+      if (plateId === null || plateDNAconc === "") {
         success = false;
         $(entry).addClass('has-error');
-      }
-      else {
-        var plateVolume = parseInt($(entry).find('.pm-volume:first').val());
+      } else {
+        plateDNAconc = parseInt(plateDNAconc);
         var platePerc = $(entry).find('.pm-percentage:first').val();
-        pools.push({'targeted_plate_id': plateId, 'volume': plateVolume, 'percentage': platePerc});
+        pools.push({'targeted_plate_id': plateId, 'volume': plateDNAconc, 'percentage': platePerc});
       }
     });
 
     if (success) {
-      var form = $('<form>', {acion: '/pm_pool_plates/', method: 'post'});
-      var fields = {'pools': JSON.stringify(pools), 'name': runPoolName, 'volume': runTotalPoolVolume};
+      var form = $('<form>', {action: '/pm_pool_plates/', method: 'post'});
+      var fields = {'pools': JSON.stringify(pools), 'name': runPoolName};
       $.each(fields, function(key, val) {
         $('<input>').attr({type: "hidden", name: key, value: val}).appendTo(form);
       });
@@ -74,37 +65,55 @@
   function updateValues() {
     var totalSamples = 0;
     $.each($('.entry .pm-num-samples'), function (idx, input) {
-      totalSamples += parseInt($(input).val());
+      var val = $(input).val();
+      if (val !== "") {
+        totalSamples += parseInt(val);
+      }
     });
     $('#total-samples').val(totalSamples);
 
     var totalPerc = 0;
     $.each($('.entry .pm-percentage'), function (idx, input) {
-      totalPerc += parseFloat($(input).val());
+      var numSamples = $(input).parents('.entry:first').find('.pm-num-samples').val();
+      var val = 0;
+      if (numSamples !== "") {
+        val = (parseInt(numSamples) / totalSamples) * 100;
+      }
+      $(input).val(val);
+      totalPerc += val;
     });
     $('#total-percentage').val(totalPerc);
 
     var totalDNAConc = 0;
     $.each($('.entry .pm-dna-conc'), function (idx, input) {
-      totalDNAConc += parseFloat($(input).val());
-    });
-    $('#total-dna-conc').val(totalDNAConc);
-
-    var totalDNAConc = 0;
-    $.each($('.entry .pm-dna-conc'), function (idx, input) {
-      totalDNAConc += parseFloat($(input).val());
+      var val = $(input).val();
+      if (val !== "") {
+        totalDNAConc += parseFloat($(input).val());
+      }
     });
     $('#total-dna-conc').val(totalDNAConc);
 
     var total5Amt = 0;
     $.each($('.entry .pm-5-amt'), function (idx, input) {
-      total5Amt += parseFloat($(input).val());
+      var perc = parseFloat($(input).parents('.entry:first').find('.pm-percentage').val());
+      // This is how the value of this column was computed in the Excel file
+      var val = 5000 * perc / 100;
+      $(input).val(val);
+      total5Amt += val;
     });
     $('#total-5-amt').val(total5Amt);
 
     var totalSampleAmt = 0;
     $.each($('.entry .pm-sample-amt'), function (idx, input) {
-      totalSampleAmt += parseFloat($(input).val());
+      var val = 0;
+      var dnaConc = $(input).parents('.entry:first').find('.pm-dna-conc').val();
+      var s5amt;
+      if (dnaConc !== ""){
+        s5mat = $(input).parents('.entry:first').find('.pm-5-amt').val();
+        val = parseFloat(s5mat) / parseFloat(dnaConc);
+      }
+      $(input).val(val);
+      totalSampleAmt += parseFloat(val);
     });
     $('#total-sample-amt').val(totalSampleAmt);
   };
@@ -115,19 +124,22 @@
    *
    **/
   function initGUI() {
-    // The initial percentage value is the same for all the plates
-    $('.entry .pm-percentage').val(100 / $('.entry').length);
-    $('.entry .pm-plate-pool').val(parseFloat($('#run-pool-volume-input').val()) / $('.entry').length);
+    // Update the computed values
+    updateValues();
 
+    $.each($('.plate-select'), function(idx, elem) {
+      addPlateOptions(elem);
+    });
+
+    $('.pm-dna-conc').change(function() {
+        updateValues();
+    });
     $('.plate-select').select2();
     $('.plate-select').change(function () {
       var numSamples = $(".plate-select option[value=" + $(this).val() + "]").data('pm-samples');
       $(this).parents('.entry:first').find('.pm-num-samples:first').val(numSamples);
-      $(this).parents('.entry:first').find('.pm-percentage:first').trigger('change');
+      updateValues();
     });
-
-    // Update the computed values
-    updateValues();
   }
 
   $(document).ready(function () {
@@ -138,10 +150,6 @@
       .html($('<span>').addClass('glyphicon glyphicon-plus'));
 
     $('.glyphicon-warning-sign').hide();
-
-    $('#run-pool-volume-input').change(function() {
-      runTotalPoolVolumeUpdated();
-    });
 
     initGUI();
 
@@ -158,19 +166,19 @@
                            '</select>' +
                          '</div>' +
                          '<div class="col-xs-1 form-group">' +
-                           '<input class="form-control pm-num-samples" type="number" disabled/>' +
+                           '<input class="form-control pm-num-samples" disabled/>' +
                          '</div>' +
                          '<div class="col-xs-1 form-group">' +
-                           '<input class="form-control pm-percentage" type="number" disabled/>' +
+                           '<input class="form-control pm-percentage" disabled/>' +
                          '</div>' +
                          '<div class="col-xs-2 form-group">' +
                            '<input class="form-control pm-dna-conc" type="number" min="0" step="0.001"/>' +
                          '</div>' +
                          '<div class="col-xs-1 form-group">' +
-                           '<input class="form-control pm-5-amt" type="number" step="0.001" disabled/>' +
+                           '<input class="form-control pm-5-amt" step="0.001" disabled/>' +
                          '</div>' +
                          '<div class="col-xs-1 form-group">' +
-                           '<input class="form-control pm-sample-amt" type="number" step="0.1" disabled/>' +
+                           '<input class="form-control pm-sample-amt" step="0.1" disabled/>' +
                          '</div>' +
                          '<div class="col-xs-1 form-group">' +
                            '<button class="btn btn-info btn-remove form-control" type="button"><span class="glyphicon glyphicon-minus"></span></button>' +
@@ -232,19 +240,19 @@
       </div>
     <div class="col-xs-1 form-group">
       <!-- Magic number 240: In general, the pooling is always done at 240, so prepopulating to facilitate wet-lab -->
-      <input class="form-control pm-num-samples" type="number" value="{{plate['num_samples']}}" disabled/>
+      <input class="form-control pm-num-samples" value="{{plate['num_samples']}}" disabled/>
     </div>
     <div class="col-xs-1 form-group">
-      <input class="form-control pm-percentage" type="number" disabled/>
+      <input class="form-control pm-percentage" disabled/>
     </div>
     <div class="col-xs-2 form-group">
       <input class="form-control pm-dna-conc" type="number" min="0" step="0.001"/>
      </div>
      <div class="col-xs-1 form-group">
-      <input class="form-control pm-5-amt" type="number" step="0.001" disabled/>
+      <input class="form-control pm-5-amt" step="0.001" disabled/>
      </div>
      <div class="col-xs-1 form-group">
-      <input class="form-control pm-sample-amt" type="number" step="0.1" disabled/>
+      <input class="form-control pm-sample-amt" step="0.1" disabled/>
      </div>
      <div class="col-xs-1 form-group">
        <button class="btn btn-info btn-remove form-control" type="button"><span class="glyphicon glyphicon-minus"></span></button>
@@ -256,19 +264,19 @@
     <div class="col-xs-3 form-group"></div>
     <div class="col-xs-2 form-group"><label class="center-block text-right">Total:</label></div>
     <div class="col-xs-1 form-group">
-      <input class="form-control" type="number" id='total-samples' disabled/>
+      <input class="form-control" id='total-samples' disabled/>
     </div>
     <div class="col-xs-1 form-group">
-      <input class="form-control" type="number" id='total-percentage' step="0.1" disabled/>
+      <input class="form-control" id='total-percentage' step="0.1" disabled/>
     </div>
     <div class="col-xs-2 form-group">
-      <input class="form-control" type="number" id='total-dna-conc' step="0.1" disabled/>
+      <input class="form-control" id='total-dna-conc' step="0.1" disabled/>
     </div>
     <div class="col-xs-1 form-group">
-      <input class="form-control" type="number" id='total-5-amt' step="0.1" disabled/>
+      <input class="form-control" id='total-5-amt' step="0.1" disabled/>
     </div>
     <div class="col-xs-1 form-group">
-      <input class="form-control" type="number" id='total-sample-amt' step="0.1" disabled/>
+      <input class="form-control" id='total-sample-amt' step="0.1" disabled/>
     </div>
     <div class="col-xs-1 form-group">
       <span class="form-control glyphicon glyphicon-warning-sign text-center alert-danger"></span>
