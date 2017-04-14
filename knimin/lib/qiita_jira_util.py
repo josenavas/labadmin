@@ -420,6 +420,34 @@ def create_sequencing_run(pool_id, email, reagent_type, reagent_lot, platform,
     return run_id, jira_links
 
 
+def complete_sequencing_run(run_id, run_path):
+    """Updates the Jira project and attaches the sequencing data to run_path
+
+    Parameters
+    ----------
+    run_id : int
+        The run id
+    run_path : str
+        Path to the directory with the sequencing files
+    """
+    run = db.read_sequencing_run(run_id)
+
+    # Get the studies information
+    studies = []
+    for targeted_pool in db.read_pool(run['pool_id'])['targeted_pools']:
+        targeted_plate = db.read_targeted_plate(
+            targeted_pool['targeted_plate_id'])
+        dna_plate = db.read_dna_plate(targeted_plate['dna_plate_id'])
+        sample_plate = db.read_sample_plate(dna_plate['sample_plate_id'])
+        studies.extend(sample_plate['studies'])
+
+    for study_id in set(studies):
+        study = db.read_study(study_id)
+        issue_key = '%s-5' % study['jira_id']
+        jira_handler.add_comment(
+            issue_key, "Sequencing complete. Path to raw files: %s" % run_path)
+
+
 # 1 - Project initiation
 ISSUE1_DESC = """
 When this step is complete, we will have:
