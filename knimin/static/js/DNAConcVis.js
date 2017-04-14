@@ -27,7 +27,7 @@ DNAConcVis.prototype._drawGUI = function() {
   $row = $('<tr>');
   $row.appendTo($table);
   $('<th>').appendTo($row);
-  for (var i = 0; i < this.plate['rows']; i++) {
+  for (var i = 0; i < this.plate['cols']; i++) {
     $col = $('<th>');
     $col.attr('style', 'text-align: center;')
     $col.html(i+1);
@@ -41,8 +41,8 @@ DNAConcVis.prototype._drawGUI = function() {
     $col = $('<td>');
     $col.html(this._formatRowId(i));
     $col.appendTo($row);
-    // Adding the rest of the rows
-    for (var j = 0; j < this.plate['rows']; j++) {
+    // Adding the rest of the cols
+    for (var j = 0; j < this.plate['cols']; j++) {
       $col = $('<td>');
       $col.appendTo($row);
       $well = $('<div>');
