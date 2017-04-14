@@ -73,7 +73,7 @@ DNAConcVis.prototype._drawGUI = function() {
  **/
 DNAConcVis.prototype._formatWellId = function (row, col) {
   var rId = this._formatRowId(row);
-  var sep = (this.rows > 28) ? '-' : '';
+  var sep = (this.rows > 26) ? '-' : '';
   var cId = String(col + 1);
   return rId + sep + cId;
 }

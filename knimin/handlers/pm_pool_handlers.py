@@ -20,6 +20,22 @@ from knimin import db
 
 
 def _get_targeted_plates(plates_arg):
+    """Retrieve the targeted plates
+
+    This function is done simply to avoid looping the plate list twice
+    and to avoid code duplication
+
+    Parameters
+    ----------
+    plates_arg : list of int
+        The list of id
+
+    Returns
+    -------
+    list of dict, list of dict
+        A list with all plates info and a list with the requested plates info
+    """
+    plates_arg = set(plates_arg)
     all_plates = []
     plates = []
     for plate in db.get_targeted_plate_list():
@@ -32,6 +48,22 @@ def _get_targeted_plates(plates_arg):
 
 
 def _get_quantified_targeted_plates(plates_arg):
+    """Retrieve the quantified targeted plates
+
+    This function is done simply to avoid looping the plate list twice
+    and to avoid code duplication
+
+    Parameters
+    ----------
+    plates_arg : list of int
+        The list of id
+
+    Returns
+    -------
+    list of dict, list of dict
+        A list with all plates info and a list with the requested plates info
+    """
+    plates_arg = set(plates_arg)
     all_plates = []
     plates = []
     for plate in db.get_quantified_targeted_plate_list():
@@ -44,6 +76,20 @@ def _get_quantified_targeted_plates(plates_arg):
 
 
 def _get_clean_targeted_plate_data(plate_id):
+    """Retrieves the targeted plate information
+
+    We need to make sure that the information sent to the handler is JSONized
+
+    Parameters
+    ----------
+    plate_id : int
+        The plate identifier
+
+    Returns
+    -------
+    dict
+        The plate information
+    """
     # Get the plate information
     plate = db.read_targeted_plate(plate_id)
     dna_plate = db.read_dna_plate(plate['dna_plate_id'])
