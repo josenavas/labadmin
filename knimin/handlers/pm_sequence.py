@@ -10,7 +10,8 @@ from tornado.web import authenticated
 from knimin.handlers.base import BaseHandler
 from knimin.handlers.access_decorators import set_access
 from knimin import db
-from knimin.lib.qiita_jira_util import create_sequencing_run
+from knimin.lib.qiita_jira_util import (
+    create_sequencing_run, complete_sequencing_run)
 
 
 @set_access(['Admin'])
@@ -41,3 +42,16 @@ class PMSequenceHandler(BaseHandler):
 
         run = db.read_sequencing_run(run_id)
         self.render("pm_sequence_success.html", run=run, jira_links=jira_links)
+
+
+@set_access(['Admin'])
+class PMSequencingCompleteHandler(BaseHandler):
+    @authenticated
+    def post(self):
+        run_id = self.get_argument('run_id')
+        run_path = self.get_argument('run_path')
+
+        complete_sequencing_run(run_id, run_path)
+
+        self.set_status(200)
+        self.finish()

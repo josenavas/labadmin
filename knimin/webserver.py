@@ -43,7 +43,8 @@ from knimin.handlers.pm_library_prep import (
 from knimin.handlers.pm_pool_handlers import (
     PMTargetedConcentrationHandler, PMTargetedConcentrationCheckHandler,
     PMTargetedPoolHandler)
-from knimin.handlers.pm_sequence import PMSequenceHandler
+from knimin.handlers.pm_sequence import (
+    PMSequenceHandler, PMSequencingCompleteHandler)
 from knimin.handlers.pm_condense import PMCondensePlatesHandler
 
 define("port", default=config.http_port, type=int)
@@ -96,6 +97,7 @@ class WebApplication(Application):
              PMTargetedConcentrationCheckHandler),
             (r"/pm_targeted_pool/", PMTargetedPoolHandler),
             (r"/pm_sequence/", PMSequenceHandler),
+            (r"/pm_sequencing_complete/", PMSequencingCompleteHandler),
             (r"/pm_create_study/", PMCreateStudyHandler),
             (r"/pm_plate_list/", PMPlateListHandler),
             (r"/pm_create_plate/", PMCreatePlateHandler),
