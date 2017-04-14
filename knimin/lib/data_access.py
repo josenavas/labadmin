@@ -4125,15 +4125,17 @@ class KniminAccess(object):
             Plate id, plate name and date
         """
         with TRN:
-            sql = """SELECT targeted_plate_id as id,
-                            p.name as name,
-                            p.created_on::date as date,
-                            COUNT(sample_id) as num_samples
-                     FROM pm.targeted_plate p
-                        JOIN pm.dna_plate d USING (dna_plate_id)
-                        JOIN pm.sample_plate_layout l USING (sample_plate_id)
-                     GROUP BY id, p.name, p.created_on
-                     ORDER BY date DESC"""
+            # Magic number 0.0001: since we are dealing with floats, we need
+            # the ones that have different from 0. All those values are always
+            # positive, and the minimum threshold that the user can choose is
+            # 0.001. By using 0.0001 we ensure that we count correctly
+            sql = """SELECT targeted_plate_id AS id, name,
+                            COUNT(mod_concentration > 0.0001) as num_samples,
+                            created_on::date as date
+                     FROM pm.targeted_plate
+                        LEFT JOIN pm.targeted_plate_well_values
+                            USING (targeted_plate_id)
+                     GROUP BY id, name"""
             TRN.add(sql)
             return [dict(row) for row in TRN.execute_fetchindex()]
 
