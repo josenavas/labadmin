@@ -40,7 +40,8 @@ from knimin.handlers.pm_create_study import PMCreateStudyHandler
 from knimin.handlers.pm_library_prep import (
     PMTargetGeneLibraryPrepHandler,
     PMMetagenomicsLibraryPrepHandler)
-from knimin.handlers.pm_pool_handlers import PMPoolPlatesHandler
+from knimin.handlers.pm_pool_handlers import (
+    PMTargetedConcentrationHandler, PMTargetedConcentrationCheckHandler)
 from knimin.handlers.pm_sequence import PMSequenceHandler
 from knimin.handlers.pm_condense import PMCondensePlatesHandler
 
@@ -89,7 +90,9 @@ class WebApplication(Application):
             (r"/pm_library_prep/target_gene/", PMTargetGeneLibraryPrepHandler),
             (r"/pm_library_prep/metagenomics/",
              PMMetagenomicsLibraryPrepHandler),
-            (r"/pm_pool_plates/", PMPoolPlatesHandler),
+            (r"/pm_targeted_concentration/", PMTargetedConcentrationHandler),
+            (r"/pm_targeted_concentration_check/",
+             PMTargetedConcentrationCheckHandler),
             (r"/pm_sequence/", PMSequenceHandler),
             (r"/pm_create_study/", PMCreateStudyHandler),
             (r"/pm_plate_list/", PMPlateListHandler),
