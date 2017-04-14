@@ -400,6 +400,10 @@ ul.mainmenu li a:hover {
 	font-style: italic;
 }
 
+.pm-conc-min {
+	background-color: rgba(200,250,200,1);
+}
+
 .pm-conc-diff {
 	background-color: rgba(250,200,200,1);
 }

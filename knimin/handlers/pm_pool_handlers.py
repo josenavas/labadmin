@@ -8,16 +8,34 @@
 
 from tornado.web import authenticated
 from tornado.escape import json_decode
+from datetime import date
 
 import numpy as np
 
 from knimin.lib.parse import parse_plate_reader_output
+from knimin.lib.format import format_epmotion_file
 from knimin.handlers.base import BaseHandler
 from knimin.handlers.access_decorators import set_access
 from knimin import db
 
 
 def _get_targeted_plates(plates_arg):
+    """Retrieve the targeted plates
+
+    This function is done simply to avoid looping the plate list twice
+    and to avoid code duplication
+
+    Parameters
+    ----------
+    plates_arg : list of int
+        The list of id
+
+    Returns
+    -------
+    list of dict, list of dict
+        A list with all plates info and a list with the requested plates info
+    """
+    plates_arg = set(plates_arg)
     all_plates = []
     plates = []
     for plate in db.get_targeted_plate_list():
@@ -30,6 +48,22 @@ def _get_targeted_plates(plates_arg):
 
 
 def _get_quantified_targeted_plates(plates_arg):
+    """Retrieve the quantified targeted plates
+
+    This function is done simply to avoid looping the plate list twice
+    and to avoid code duplication
+
+    Parameters
+    ----------
+    plates_arg : list of int
+        The list of id
+
+    Returns
+    -------
+    list of dict, list of dict
+        A list with all plates info and a list with the requested plates info
+    """
+    plates_arg = set(plates_arg)
     all_plates = []
     plates = []
     for plate in db.get_quantified_targeted_plate_list():
@@ -42,6 +76,20 @@ def _get_quantified_targeted_plates(plates_arg):
 
 
 def _get_clean_targeted_plate_data(plate_id):
+    """Retrieves the targeted plate information
+
+    We need to make sure that the information sent to the handler is JSONized
+
+    Parameters
+    ----------
+    plate_id : int
+        The plate identifier
+
+    Returns
+    -------
+    dict
+        The plate information
+    """
     # Get the plate information
     plate = db.read_targeted_plate(plate_id)
     dna_plate = db.read_dna_plate(plate['dna_plate_id'])
@@ -116,6 +164,31 @@ class PMTargetedConcentrationCheckHandler(BaseHandler):
 
         self.redirect("/pm_targeted_pool/?%s"
                       % "&".join(["plate=%s" % p['id'] for p in plates]))
+
+
+@set_access(['Admin'])
+class PMTargetedPoolEPMotionHandler(BaseHandler):
+    @authenticated
+    def post(self):
+        plate = json_decode(self.get_argument('plate'))
+        dest = self.get_argument('destination')
+
+        plate['mod_concentration'] = np.asarray(
+            plate['mod_concentration'], dtype=np.float)
+        db.quantify_targeted_plate(plate['id'], 'mod_concentration',
+                                   plate['mod_concentration'])
+
+        data = format_epmotion_file(plate['mod_concentration'], dest)
+        file_name = "EPMotion_%s_%s_%s.csv" % (
+            plate['id'], plate['name'].replace(' ', '.'),
+            date.today().strftime('%Y_%m_%d'))
+
+        self.set_header('Content-Type', 'application/octet-stream')
+        self.set_header('Content-Disposition',
+                        'attachment; filename=' + file_name)
+        self.write(data)
+        self.flush()
+        self.finish()
 
 
 @set_access(['Admin'])

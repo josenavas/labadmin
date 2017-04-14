@@ -24,15 +24,19 @@
   };
 
   function _getWellValue(plate, row, col) {
-    var val = plate['raw_concentration'][row][col];
+    var val = parseFloat($('#pm-norm').val()) / plate['raw_concentration'][row][col];
+    plate['color_class'][row][col] = '';
     if (plate['bool_blanks'][row][col]) {
       val = $('#pm-filter-blanks').val();
+      plate['color_class'][row][col] = 'pm-conc-blank';
     } else if (val < 0 || val >= $('#pm-filter-max').val()) {
       // If the value is negative or bigger than maximum we need to set to 0
       val = 0;
+      plate['color_class'][row][col] = 'pm-conc-diff';
     } else if (val < $('#pm-filter-min').val()) {
       // If the value is smaller than the minimum we set it to the minimum
       val = $('#pm-filter-min').val();
+      plate['color_class'][row][col] = 'pm-conc-min'
     }
     return val;
   };
@@ -56,8 +60,10 @@
     for (var plate of plates) {
       // Initialize a matrix mapping the blanks for easy access
       plate['bool_blanks'] = new Array(plate['rows']);
+      plate['color_class'] = new Array(plate['rows']);
       for (var i = 0; i < plate['rows']; i++) {
         plate['bool_blanks'][i] = new Array(plate['cols']).fill(false);
+        plate['color_class'][i] = new Array(plate['cols']).fill(false);
       }
       for (var blank of plate['blanks']) {
         plate['bool_blanks'][blank[1]][blank[2]] = true;
@@ -105,7 +111,17 @@
       updateMod(plates[$("#general-div").data('pm-idx')]);
     });
 
+    $('#pm-norm').change(function () {
+      updateMod(plates[$("#general-div").data('pm-idx')]);
+    });
 
+    $('#pm-epmotion').click(function () {
+      var $form = $('<form>', {action: '/pm_targeted_pool_epmotion/', method: 'post', target:'_blank' });
+      $('<input>').attr({type: 'hidden', 'name': 'plate', value: JSON.stringify(plates[$("#general-div").data('pm-idx')])}).appendTo($form);
+      $('<input>').attr({type: 'hidden', 'name': 'destination', value: $('#pm-destination').val()}).appendTo($form);
+      console.log($('#pm-destination').val());
+      $form.appendTo('body').submit()
+    });
   });
 </script>
 {% end %}
@@ -113,7 +129,7 @@
 <div class="container" id="general-div">
   <div class="row">
     <div class="col-xs-9 form-group">
-      <label><h3>Check concentration values - Plate: <b id="pm-name"></b><i id='pm-counter'></i></h3></label>
+      <label><h3>Check concentration values - Plate: <b id="pm-name"></b> <i id='pm-counter'></i></h3></label>
     </div>
     <div class="col-xs-1">
       <button id='pm-prev' class='btn btn-info'><i class='glyphicon glyphicon-triangle-left'></i> Prev</button>
@@ -127,27 +143,40 @@
   </div>
   <div class="row">
     <div class="col-xs-4 form-group">
-      <label>Minimum:</br>(values lower than this will be set to this value)</label>
+      <label>Normalization value (ng):</label>
+      <input type="number" id="pm-norm" min=0 value=240 step=0.001 value=240/>
+    </div>
+    <div class="col-xs-4 form-group">
+      <label>Blanks value (&mu;L):</br>(blank wells will be set to this value)</label>
+      <input type="number" id="pm-filter-blanks" min=0 value=2 step=0.001 />
+    </div>
+    <div class="col-xs-4 form-group">
+      <label>EPMotion destination:</label>
+      <input type="number" id="pm-destination" min=1 max=24 value=1 />
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-xs-4 form-group">
+      <label>Minimum concentration: (ng/&mu;L)</br>(values lower than this will be set to this value)</label>
       <input type="number" id="pm-filter-min" min=0 value=1 step=0.001 />
     </div>
     <div class="col-xs-4 form-group">
-      <label>Maximum:</br>(values higher than this will be set to 0)</label>
+      <label>Maximum concentration: (ng/&mu;L)</br>(values higher than this will be set to 0)</label>
       <input type="number" id="pm-filter-max" min=0 value=15 step=0.001 />
     </div>
     <div class="col-xs-4 form-group">
-      <label>Blanks value:</br>(blank wells will be set to this value)</label>
-      <input type="number" id="pm-filter-blanks" min=0 value=2 step=0.001 />
+      <button class="btn btn-info" id="pm-epmotion"><span class='glyphicon glyphicon-export'></span> Download EPMotion file</button>
     </div>
   </div>
   <div class="row">
     <div class="col-xs-12 form-group">
-      <label>Plate reader values</label>
+      <label>Concentration values (ng/&mu;L):</label>
     </div>
   </div>
   <div class="container" id="raw-div"></div>
   <div class="row">
     <div class="col-xs-12 form-group">
-      <label>Filtered values</label>
+      <label>EPMotion volume values (&mu;L):</label>
     </div>
   </div>
   <div class="container" id="mod-div"></div>
