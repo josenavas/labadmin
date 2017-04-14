@@ -9,6 +9,8 @@
 from tornado.web import authenticated
 from tornado.escape import json_decode
 
+import numpy as np
+
 from knimin.lib.parse import parse_plate_reader_output
 from knimin.handlers.base import BaseHandler
 from knimin.handlers.access_decorators import set_access
@@ -25,6 +27,32 @@ def _get_targeted_plates(plates_arg):
             plates.append(plate)
 
     return all_plates, plates
+
+
+def _get_clean_targeted_plate_data(plate_id):
+    # Get the plate information
+    plate = db.read_targeted_plate(plate_id)
+    dna_plate = db.read_dna_plate(plate['dna_plate_id'])
+    sample_plate = db.read_sample_plate(dna_plate['sample_plate_id'])
+    # Get the blanks
+    plate['blanks'] = db.get_blanks_from_sample_plate(
+        dna_plate['sample_plate_id'])
+    # Get the plate size
+    plate_type = dict(
+        db.read_plate_type(sample_plate['plate_type_id']))
+    plate['rows'] = plate_type['rows']
+    plate['cols'] = plate_type['cols']
+    # The raw files have only 3 decimals, so the extra decimals is just
+    # an artifact of the machine. Rounding them to 3 decimals
+    plate['raw_concentration'] = np.around(
+        plate['raw_concentration'], decimals=3).tolist()
+    if plate['mod_concentration'] is not None:
+        plate['mod_concentration'] = np.around(
+            plate['mod_concentration'], decimals=3).tolist()
+    # Datetime is not JSON serializable
+    plate['created_on'] = plate['created_on'].isoformat()
+
+    return plate
 
 
 @set_access(['Admin'])
@@ -45,7 +73,7 @@ class PMTargetedConcentrationHandler(BaseHandler):
         plate_reader_data = parse_plate_reader_output(file_contents)
 
         for p, d in zip(plates, [plate_reader_data]):
-            print "db.write_targeted_plate_concentration(p, d)"
+            db.quantify_targeted_plate(p, 'raw_concentration', d)
 
         self.redirect(
             "/pm_targeted_concentration_check/?%s"
@@ -57,50 +85,33 @@ class PMTargetedConcentrationCheckHandler(BaseHandler):
     @authenticated
     def get(self):
         plates_arg = map(int, self.get_arguments('plate'))
-        _, plates = _get_targeted_plates(plates_arg)
 
-        import numpy as np
-
-        v = np.around(
-           np.random.rand(8, 12) * 10, decimals=3).tolist()
-        plates = [
-            {'id': 1, 'name': 'Test plate', 'email': 'test',
-             'dna_plate_id': 1, 'primer_plate_id': 1,
-             'master_mix_lot': '14459', 'robot': 'ROBE',
-             'tm300_8_tool': '208484Z', 'tm50_8_tool': '108364Z',
-             'water_lot': 'RNBD9959',
-             'raw_concentration': np.around(
-                np.random.rand(8, 12), decimals=3).tolist(),
-             'mod_concentration': None,
-             'rows': 8, 'cols': 12,
-             'blanks': [['BLANK', 0, 0], ['BLANK', 0, 3],
-                        ['BLANK', 1, 0], ['BLANK', 1, 3],
-                        ['BLANK', 2, 0], ['BLANK', 2, 3],
-                        ['BLANK', 3, 0], ['BLANK', 3, 3],
-                        ['BLANK', 4, 0], ['BLANK', 4, 3],
-                        ['BLANK', 5, 0], ['BLANK', 5, 3],
-                        ['BLANK', 6, 0], ['BLANK', 6, 3],
-                        ['BLANK', 7, 0], ['BLANK', 7, 3]]},
-            {'id': 2, 'name': 'Test plate 2', 'email': 'test',
-             'dna_plate_id': 2, 'primer_plate_id': 1,
-             'master_mix_lot': '14459', 'robot': 'ROBE',
-             'tm300_8_tool': '208484Z', 'tm50_8_tool': '108364Z',
-             'water_lot': 'RNBD9959',
-             'raw_concentration': v,
-             'mod_concentration': None,
-             'rows': 8, 'cols': 12,
-             'blanks': [['BLANK', 0, 0], ['BLANK', 0, 3],
-                        ['BLANK', 1, 0], ['BLANK', 1, 3],
-                        ['BLANK', 2, 0], ['BLANK', 2, 3],
-                        ['BLANK', 3, 0], ['BLANK', 3, 3],
-                        ['BLANK', 4, 0], ['BLANK', 4, 3],
-                        ['BLANK', 5, 0], ['BLANK', 5, 3],
-                        ['BLANK', 6, 0], ['BLANK', 6, 3],
-                        ['BLANK', 7, 0], ['BLANK', 7, 3]]}]
+        plates = []
+        for p_id in plates_arg:
+            plate = _get_clean_targeted_plate_data(p_id)
+            plates.append(plate)
 
         self.render("pm_targeted_concentration_check.html", plates=plates)
 
     @authenticated
     def post(self):
         plates = json_decode(self.get_argument('plates'))
-        print plates
+
+        for plate in plates:
+            db.quantify_targeted_plate(
+                plate['id'], 'mod_concentration',
+                np.asarray(plate['mod_concentration'], dtype=np.float))
+
+        self.redirect("/pm_targeted_pool/?%s"
+                      % "&".join(["plate=%s" % p['id'] for p in plates]))
+
+
+@set_access(['Admin'])
+class PMTargetedPoolHandler(BaseHandler):
+    @authenticated
+    def get(self):
+        plates_arg = map(int, self.get_arguments('plate'))
+        all_plates, plates = _get_targeted_plates(plates_arg)
+
+        self.render("pm_targeted_pool.html", all_plates=all_plates,
+                    plates=plates)

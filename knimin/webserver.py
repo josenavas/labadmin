@@ -41,7 +41,8 @@ from knimin.handlers.pm_library_prep import (
     PMTargetGeneLibraryPrepHandler,
     PMMetagenomicsLibraryPrepHandler)
 from knimin.handlers.pm_pool_handlers import (
-    PMTargetedConcentrationHandler, PMTargetedConcentrationCheckHandler)
+    PMTargetedConcentrationHandler, PMTargetedConcentrationCheckHandler,
+    PMTargetedPoolHandler)
 from knimin.handlers.pm_sequence import PMSequenceHandler
 from knimin.handlers.pm_condense import PMCondensePlatesHandler
 
@@ -93,6 +94,7 @@ class WebApplication(Application):
             (r"/pm_targeted_concentration/", PMTargetedConcentrationHandler),
             (r"/pm_targeted_concentration_check/",
              PMTargetedConcentrationCheckHandler),
+            (r"/pm_targeted_pool/", PMTargetedPoolHandler),
             (r"/pm_sequence/", PMSequenceHandler),
             (r"/pm_create_study/", PMCreateStudyHandler),
             (r"/pm_plate_list/", PMPlateListHandler),
