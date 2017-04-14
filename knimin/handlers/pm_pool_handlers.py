@@ -8,10 +8,12 @@
 
 from tornado.web import authenticated
 from tornado.escape import json_decode
+from datetime import date
 
 import numpy as np
 
 from knimin.lib.parse import parse_plate_reader_output
+from knimin.lib.format import format_epmotion_file
 from knimin.handlers.base import BaseHandler
 from knimin.handlers.access_decorators import set_access
 from knimin import db
@@ -116,6 +118,31 @@ class PMTargetedConcentrationCheckHandler(BaseHandler):
 
         self.redirect("/pm_targeted_pool/?%s"
                       % "&".join(["plate=%s" % p['id'] for p in plates]))
+
+
+@set_access(['Admin'])
+class PMTargetedPoolEPMotionHandler(BaseHandler):
+    @authenticated
+    def post(self):
+        plate = json_decode(self.get_argument('plate'))
+        dest = self.get_argument('destination')
+
+        plate['mod_concentration'] = np.asarray(
+            plate['mod_concentration'], dtype=np.float)
+        db.quantify_targeted_plate(plate['id'], 'mod_concentration',
+                                   plate['mod_concentration'])
+
+        data = format_epmotion_file(plate['mod_concentration'], dest)
+        file_name = "EPMotion_%s_%s_%s.csv" % (
+            plate['id'], plate['name'].replace(' ', '.'),
+            date.today().strftime('%Y_%m_%d'))
+
+        self.set_header('Content-Type', 'application/octet-stream')
+        self.set_header('Content-Disposition',
+                        'attachment; filename=' + file_name)
+        self.write(data)
+        self.flush()
+        self.finish()
 
 
 @set_access(['Admin'])

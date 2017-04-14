@@ -109,11 +109,8 @@ DNAConcVis.prototype._formatRowId = function (row) {
  **/
 DNAConcVis.prototype._formatWellStyle = function ($input, row, col) {
   if (this.isMod) {
-    if (this.plate['bool_blanks'][row][col]){
-      $input.addClass('pm-conc-blank');
-    } else if (this.plate['mod_concentration'][row][col] !== this.plate['raw_concentration'][row][col]){
-      $input.addClass('pm-conc-diff');
-    }
+    $input.removeClass('pm-conc-blank').removeClass('pm-conc-diff').removeClass('pm-conc-min');
+    $input.addClass(this.plate['color_class'][row][col]);
     $input.val(this.plate['mod_concentration'][row][col]);
   } else {
     $input.val(this.plate['raw_concentration'][row][col]);
