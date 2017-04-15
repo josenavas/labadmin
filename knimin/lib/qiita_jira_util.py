@@ -420,15 +420,19 @@ def create_sequencing_run(pool_id, email, reagent_type, reagent_lot, platform,
     return run_id, jira_links
 
 
-def complete_sequencing_run(run_id, run_path):
+def complete_sequencing_run(success, run_id, run_path, logs):
     """Updates the Jira project and attaches the sequencing data to run_path
 
     Parameters
     ----------
+    success : bool
+        Whether the run was successful
     run_id : int
         The run id
     run_path : str
         Path to the directory with the sequencing files
+    logs : list of str
+        The list of log paths
     """
     run = db.read_sequencing_run(run_id)
 
@@ -441,11 +445,78 @@ def complete_sequencing_run(run_id, run_path):
         sample_plate = db.read_sample_plate(dna_plate['sample_plate_id'])
         studies.extend(sample_plate['studies'])
 
+    failures = {}
+    if success:
+        jira_comment = "Sequencing complete. Path to raw files: %s" % run_path
+        # Retrieve the prep template information from the DB)
+        preps = db.generate_prep_information(run_id)
+        # Push the prep information to Qiita
+        for prep in preps:
+            # All the rows have the same value, so I just need to access
+            # to a random row to get the study_id -> 0 is guaranteed to exist
+            study_id = prep.study_id.iloc[0]
+
+            # TODO: Copy the sequencing files to relevant Qiita folders
+
+            # We need to assess the replicates
+            counts = prep.sample_name.value_counts()
+            replicates = counts[counts > 1].index.tolist()
+            if replicates:
+                # There are replicates, rename the samples by adding the
+                # plate id and the well. Rename the column sample_name
+                prep.rename(columns={'sample_name': 'original_sample_name'},
+                            inplace=True)
+                # Create the new sample name column
+                prep['sample_name'] = prep['original_sample_name']
+                # Rename the samples as needed
+                for r in replicates:
+                    for i in prep[prep['original_sample_name'] == r].index:
+                        prep.loc[i, 'sample_name'] = _format_sample_id(
+                            prep.original_sample_name[i], prep.dna_plate_id[i],
+                            prep.row[i] - 1, prep.col[i] - 1)
+
+            # It is ensured that the sample_name column contain unique IDs
+            prep.set_index('sample_name', inplace=True, drop=True)
+            sc, response = qiita_client.post(
+                '/api/v1/study/%s/preparation?data_type=%s' % (study_id),
+                data=prep.T.to_dict(), asjson=True)
+            if sc != 201:
+                msg = response['message'] if response else 'No error specified'
+                failures[study_id] = (
+                    "[CRITICAL]: FAILURE: Creating Prep Information in study "
+                    "%s failed: (%s) %s" % (study_id, sc, msg))
+                continue
+
+            # At this point the prep information has been created and the
+            # sequencing files are there. Attach the files to the prep
+            prep_id = response['id']
+            payload = {'artifact_type': 'FASTQ',
+                       'filepaths': [['foo.txt', 1],
+                                     ['bar.txt', 'raw_barcodes']],
+                       'artifact_name': 'a name is a name'}
+            sc, response = qiita_client.post(
+                '/api/v1/study/%s/preparation/%s/artifact'
+                % (study_id, prep_id), data=payload, asjson=True)
+            if sc != 201:
+                msg = response['message'] if response else "No error specified"
+                failures[study_id] = (
+                    "[CRITICAL]: FAILURE: Attaching files to prep information "
+                    "%s of study %s failed: (%s) %s"
+                    % (prep_id, study_id, sc, msg))
+    else:
+        jira_comment = (
+            "[CRITICAL]: FAILURE: Sequencing run %s (ID: %s). Logs:\n - %s"
+            % (run['name'], run['id'], '\n - '.join(logs)))
+
+    # Update the status in Jira independently of run status
     for study_id in set(studies):
         study = db.read_study(study_id)
         issue_key = '%s-5' % study['jira_id']
-        jira_handler.add_comment(
-            issue_key, "Sequencing complete. Path to raw files: %s" % run_path)
+        jira_handler.add_comment(issue_key, jira_comment)
+
+        error_comment = failures.get(study_id)
+        if error_comment:
+            jira_handler.add_comment(issue_key, error_comment)
 
 
 # 1 - Project initiation
