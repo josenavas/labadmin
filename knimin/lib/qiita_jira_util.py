@@ -51,10 +51,10 @@ def _update_qiita_samples(study_id, blanks, replicates):
     ----------
     study_id : int
         The study id
-    blanks : list of (str, str)
-        For each blank to add, the blank name, plate, row and column
-    replicates : list of (str, int, int, int)
-        For each technical replicate, the sample id, plate, row and column
+    blanks : list of str
+        The sample id of the blank
+    replicates : list of (str, str)
+        For each technical replicate, the new name and the original sample name
 
     Raises
     ------
@@ -80,23 +80,15 @@ def _update_qiita_samples(study_id, blanks, replicates):
             "Can't retrieve study (%s) metadata from Qiita: %s %s"
             % (study_id, sc, msg))
 
-    new_md = {}
     # This is the blanks metadata, mark all categories as not applicable
     blanks_md = {c: 'Not applicable' for c in categories}
-    # Construct the metadata for the blanks
-    for sample_id, plate, row, col in blanks:
-        # We need to make sure that the blanks are also pre-fixed with the
-        # study id. Otherwise, is both blanks and study samples are being
-        # added at once, the study samples will be prefixed twice
-        new_sample_id = "%s.%s" % (
-            study_id, _format_sample_id(sample_id, plate, row, col))
-        new_md[new_sample_id] = blanks_md
+    new_md = {sid: blanks_md for sid in blanks}
 
     # Construct the metadata for the technical replicates
-    for sample_id, plate, row, col in replicates:
-        new_sample_id = _format_sample_id(sample_id, plate, row, col)
+    for new_sample_id, old_sample_id in replicates:
         # Use the metadata of the original sample
-        new_md[new_sample_id] = dict(zip(categories, md['samples'][sample_id]))
+        new_md[new_sample_id] = dict(
+            zip(categories, md['samples'][old_sample_id]))
 
     # Making sure that there is something to send
     if new_md:
@@ -159,16 +151,19 @@ def _assess_replicates(prep):
     # Create the new sample name column
     prep['sample_name'] = prep['original_sample_name']
     # Rename the samples as needed
+    new_sample_ids = []
     for r in replicates:
         for i in prep[prep['original_sample_name'] == r].index:
-            prep.loc[i, 'sample_name'] = _format_sample_id(
+            sample_id = _format_sample_id(
                 prep.original_sample_name[i], prep.dna_plate_id[i],
                 prep.row[i] - 1, prep.col[i] - 1)
+            prep.loc[i, 'sample_name'] = sample_id
+            new_sample_ids.append(sample_id)
 
     # It is ensured that the sample_name column contain unique IDs
     prep.set_index('sample_name', inplace=True, drop=True)
 
-    return prep, replicates
+    return prep, new_sample_ids
 
 
 def create_study(title, abstract, description, alias, qiita_user,
@@ -355,10 +350,9 @@ def create_sequencing_run(pool_id, email, reagent_type, reagent_lot, platform,
     for prep in preps:
         prep, replicates = _assess_replicates(prep)
         # Update qiita with blanks and replicates
-        blanks = [(sid, prep.original_sample_name[sid])
-                  for sid in prep[prep.is_blank].index]
+        blanks = [sid for sid in prep[prep.is_blank].index]
         replicates = [(sid, prep.original_sample_name[sid])
-                      for sid in replicates]
+                      for sid in replicates if sid not in blanks]
         study_id = prep.study_id.iloc[0]
         _update_qiita_samples(study_id, blanks, replicates)
 
@@ -497,9 +491,17 @@ def complete_sequencing_run(success, run_id, run_path, logs):
             # Copy the sequencing files to relevant Qiita folders
             atype, filepaths = _copy_sequence_files_to_qiita(prep, run_path)
 
+            dtype = (prep.target_gene.iloc[0]
+                     if 'target_gene' in prep else 'Metagenomics')
+
+            prep, _ = _assess_replicates(prep)
+            prep['created_on'] = prep.created_on.apply(lambda x: x.isoformat())
+            # Cast everything to string: some types generate issues
+            prep = prep.astype(str)
+
             sc, response = qiita_client.post(
-                '/api/v1/study/%s/preparation?data_type=%s' % (study_id),
-                data=prep.T.to_dict(), asjson=True)
+                '/api/v1/study/%s/preparation?data_type=%s'
+                % (study_id, dtype), data=prep.T.to_dict(), as_json=True)
             if sc != 201:
                 msg = response['message'] if response else 'No error specified'
                 failures[study_id].append(
@@ -515,7 +517,7 @@ def complete_sequencing_run(success, run_id, run_path, logs):
                        'artifact_name': run['name']}
             sc, response = qiita_client.post(
                 '/api/v1/study/%s/preparation/%s/artifact'
-                % (study_id, prep_id), data=payload, asjson=True)
+                % (study_id, prep_id), data=payload, as_json=True)
             if sc != 201:
                 msg = response['message'] if response else "No error specified"
                 failures[study_id].append(
@@ -535,7 +537,7 @@ def complete_sequencing_run(success, run_id, run_path, logs):
 
         error_comment = failures[study_id]
         if error_comment:
-            jira_handler.add_comment(issue_key, error_comment)
+            jira_handler.add_comment(issue_key, '\n'.join(error_comment))
 
 
 # 1 - Project initiation

@@ -13,8 +13,10 @@ from tempfile import mkdtemp
 from shutil import rmtree
 from os.path import join, exists
 from os import remove
+from copy import deepcopy
 
 import pandas as pd
+import numpy as np
 
 from knimin import qiita_client, jira_handler, db, config
 from knimin.lib.qiita_jira_util import (
@@ -36,10 +38,6 @@ class TestQiitaJiraUtil(TestCase):
             except Exception as e:
                 print("Database clean-up failed. Downstream tests might be "
                       "affected by this! Reason: %s" % format_exc(e))
-
-    @classmethod
-    def tearDownClass(cls):
-        # Reset the qiita DB to make tests independent
         qiita_client.post("/apitest/reset/")
 
     def test_format_sample_id(self):
@@ -63,7 +61,7 @@ class TestQiitaJiraUtil(TestCase):
         self._clean_up_funcs.append(partial(db.delete_study, 1))
 
     def test_update_qiita_samples(self):
-        # Testing errors - success is being tested in extract_sample_plates
+        # Testing errors - success is being tested in create_sequencing_run
         # Study does not exist (triggers first error)
         with self.assertRaises(ValueError) as ctx:
             _update_qiita_samples(0, [], [])
@@ -223,17 +221,10 @@ class TestQiitaJiraUtil(TestCase):
         self.assertEqual(obs, 'Target gene libraries have been prepared')
 
     def test_create_sequencing_run(self):
-        study_id = create_study(
-            'Test create sequencing run', 'Abstract', 'Description',
-            'Alias', 'demo@microbio.me',
-            {'name': 'LabDude', 'affiliation': 'knight lab'},
-            {'name': 'LabDude', 'affiliation': 'knight lab'},
-            'admin')
+        self._create_qiita_test_study()
+        study_id = 1
         obs = db.read_study(study_id)
         jira_id = obs['jira_id']
-        self._clean_up_funcs.append(
-            partial(jira_handler.delete_project, jira_id))
-        self._clean_up_funcs.append(partial(db.delete_study, study_id))
 
         # Create a plate
         pt = db.get_plate_types()[0]
@@ -241,7 +232,17 @@ class TestQiitaJiraUtil(TestCase):
                                           [study_id])
         self._clean_up_funcs.insert(
             0, partial(db.delete_sample_plate, plate_id))
-        layout = [[{}] * pt['cols']] * pt['rows']
+
+        # Add some samples to the studies
+        sync_qiita_study_samples(study_id)
+        samples1 = db.get_study_samples(study_id)
+
+        # Create layouts
+        well = {'sample_id': 'BLANK', 'name': None, 'notes': None}
+        row = [deepcopy(well) for i in range(pt['cols'])]
+        layout = [deepcopy(row) for i in range(pt['rows'])]
+        for i in range(12):
+            layout[0][i]['sample_id'] = samples1[i]
         db.write_sample_plate_layout(plate_id, layout)
 
         # Create DNA plates
@@ -280,7 +281,7 @@ class TestQiitaJiraUtil(TestCase):
         self.assertEqual(obs, 'SampleSheet.LabAdmin_test_pool.TargetGene.csv')
 
         self.assertEqual(len(jira_links), 1)
-        self.assertEqual(jira_links[0][0], 'Test create sequencing run')
+        self.assertEqual(jira_links[0][0], 'LabAdmin test project')
         self.assertTrue(jira_links[0][1].endswith('%s-4' % jira_id))
 
         # Check that the DB is not empty
@@ -314,7 +315,9 @@ class TestQiitaJiraUtil(TestCase):
                  'dna_plate_id': 1, 'row': 1, 'col': 7,
                  'sample_name': '1.Sample3'}}, orient='index')
         obs_prep, obs_repl = _assess_replicates(prep)
-        self.assertItemsEqual(obs_repl, ['1.Sample1', '1.Sample2', '1.BLANK'])
+        self.assertItemsEqual(obs_repl, ['1.Sample1.1.A1', '1.Sample2.1.A2',
+                                         '1.BLANK.1.A3', '1.Sample1.1.A4',
+                                         '1.Sample2.1.A5', '1.BLANK.1.A6'])
         exp = pd.DataFrame.from_dict(
             {'1.Sample1.1.A1': {'target_gene': '16S', 'study_id': 1,
                                 'run_name': 'test_run', 'dna_plate_id': 1,
@@ -406,7 +409,85 @@ class TestQiitaJiraUtil(TestCase):
             self._clean_up_funcs.append(partial(remove, fp))
 
     def test_complete_sequencing_run(self):
-        pass
+        self._create_qiita_test_study()
+
+        # Create some plates
+        p_id = db.create_sample_plate('Plate 1', 1, 'test', [1])
+        self._clean_up_funcs.insert(0, partial(db.delete_sample_plate, p_id))
+
+        sync_qiita_study_samples(1)
+        samples1 = db.get_study_samples(1)
+
+        # Create layouts
+        well = {'sample_id': 'BLANK', 'name': None, 'notes': None}
+        row = [deepcopy(well) for i in range(12)]
+        layout = [deepcopy(row) for i in range(8)]
+        layout2 = deepcopy(layout)
+        for i in range(12):
+            layout[0][i]['sample_id'] = samples1[i]
+        for i in range(8):
+            layout2[i][0]['sample_id'] = samples1[i]
+        db.write_sample_plate_layout(p_id, layout)
+
+        # Create DNA plates
+        dna_plate_ids = db.extract_sample_plates(
+            [p_id], 'test', 'HOWE_KF1', 'PM16B11', '108379ZZ')
+        for i in dna_plate_ids:
+            self._clean_up_funcs.insert(0, partial(db.delete_dna_plate, i))
+
+        # Create the target gene plates
+        plate_links = [
+            {'dna_plate_id': dna_plate_ids[0], 'primer_plate_id': 1}]
+        targeted_ids = db.prepare_targeted_libraries(
+            plate_links, 'test', 'ROBE', '208484Z', '108364Z', '14459',
+            'RNBD9959')
+        for i in targeted_ids:
+            self._clean_up_funcs.insert(
+                0, partial(db.delete_targeted_plate, i))
+
+        # Quantify the plate
+        db.quantify_targeted_plate(
+            targeted_ids[0], 'raw_concentration',
+            np.random.uniform(125, 175, size=(8, 12)))
+        db.quantify_targeted_plate(
+            targeted_ids[0], 'mod_concentration',
+            np.random.uniform(4, 6, size=(8, 12)))
+
+        # Prepare the pools
+        pools = [
+            {'targeted_plate_id': targeted_ids[0], 'volume': 240,
+             'percentage': 100}]
+        pool_id = db.pool_plates(pools, 'TestPool', 5)
+        self._clean_up_funcs.insert(0, partial(db.delete_pool, pool_id))
+
+        # Create the sequencing run
+        run_id, _ = create_sequencing_run(
+            pool_id, 'test', 'MiSeq v3 150 cycle', 'MS1234',
+            'Illumina', 'MiSeq', 'TrueSeq HT', 151, 151)
+        self._clean_up_funcs.insert(
+            0, partial(db.delete_sequencing_run, run_id))
+
+        tmp_dir = mkdtemp()
+        with open(join(tmp_dir, 'TestPool_LANE_R1_001.fastq.gz'), 'w') as f:
+            f.write('\n')
+        with open(join(tmp_dir, 'TestPool_LANE_R2_001.fastq.gz'), 'w') as f:
+            f.write('\n')
+        with open(join(tmp_dir, 'TestPool_LANE_I1_001.fastq.gz'), 'w') as f:
+            f.write('\n')
+
+        complete_sequencing_run(False, run_id, tmp_dir, ['/path/to/file.log',
+                                                         '/another/path.log'])
+        obs = jira_handler.comments('TM1-5')[0]
+        exp = ("[CRITICAL]: FAILURE: Sequencing run TestPool "
+               "(ID: %s). Logs:\n - /path/to/file.log\n - /another/path.log"
+               % run_id)
+        self.assertEqual(obs.body, exp)
+        obs.delete()
+
+        complete_sequencing_run(True, run_id, tmp_dir, [])
+        obs = jira_handler.comments('TM1-5')[0]
+        exp = ("Sequencing complete. Path to raw files: %s"
+               % tmp_dir)
 
 
 if __name__ == '__main__':

@@ -231,12 +231,8 @@ class TestPMSequencingCompleteHandler(TestHandlerBase):
         tmp_dir = mkdtemp()
         with open(join(tmp_dir, 'LabAdmin_test_pool_R1.fastq.gz'), 'w') as f:
             f.write('\n')
-
-        tmp_dir = mkdtemp()
         with open(join(tmp_dir, 'LabAdmin_test_pool_R2.fastq.gz'), 'w') as f:
             f.write('\n')
-
-        tmp_dir = mkdtemp()
         with open(join(tmp_dir, 'LabAdmin_test_pool_I1.fastq.gz'), 'w') as f:
             f.write('\n')
 
