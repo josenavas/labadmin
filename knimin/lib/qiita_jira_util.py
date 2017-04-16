@@ -367,8 +367,8 @@ def create_sequencing_run(pool_id, email, reagent_type, reagent_lot, platform,
     int
         The run id
     """
-    # Store the information on the DB
-    # Sequencer is hardcoded to None. This information may bot be known at this
+    # Store the information in the DB
+    # Sequencer is hardcoded to None. This information may not be known at this
     # time but we can potentially retrieve this from the output sequencing
     # folder.
     run_id = db.create_sequencing_run(
