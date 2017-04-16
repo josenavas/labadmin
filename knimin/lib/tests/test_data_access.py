@@ -2197,7 +2197,7 @@ class TestDataAccess(TestCase):
                 'extraction_tool_name', 'targeted_pool_volume',
                 'sequencing_run_notes', 'sequencer', 'platform',
                 'instrument_model', 'reagent_type', 'reagent_lot', 'assay',
-                'fwd_cycles', 'rev_cycles', 'created_on']
+                'fwd_cycles', 'rev_cycles', 'created_on', 'run_name']
         for prep in preps:
             self.assertItemsEqual(prep.columns, cols)
 

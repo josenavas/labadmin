@@ -4902,9 +4902,11 @@ class KniminAccess(object):
         # some of this information is useful for the prep details, but is a
         # pain to pull from the query, so just create an updater dict
         row_updater = {k: v for k, v in run.items()
-                       if k not in {'name', 'pool_id', 'id'}}
+                       if k not in {'pool_id', 'id'}}
         row_updater['sequencing_run_notes'] = row_updater['notes']
+        row_updater['run_name'] = row_updater['name']
         del row_updater['notes']
+        del row_updater['name']
 
         pool = self.read_pool(run['pool_id'])
 
