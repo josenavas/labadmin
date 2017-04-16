@@ -44,7 +44,6 @@ def _format_sample_id(sample_id, plate_id, row, col):
     return "%s.%s.%s" % (sample_id, plate_id, well)
 
 
-# TODO
 def _update_qiita_samples(study_id, blanks, replicates):
     """Updates the qiita study with blanks and technical replicates
 
@@ -52,7 +51,7 @@ def _update_qiita_samples(study_id, blanks, replicates):
     ----------
     study_id : int
         The study id
-    blanks : list of (str, int, int, int)
+    blanks : list of (str, str)
         For each blank to add, the blank name, plate, row and column
     replicates : list of (str, int, int, int)
         For each technical replicate, the sample id, plate, row and column
@@ -136,6 +135,40 @@ def _create_kl_jira_project(jira_user, jira_template, study_id, title):
     jira_handler.create_issues(issues, prefetch=False)
 
     return jira_project
+
+
+def _assess_replicates(prep):
+    """Renames the technical replciates in the prep information
+
+    Parameters
+    ----------
+    prep : pandas.DataFrame
+        The prep information
+
+    Returns
+    -------
+    pandas.DataFrame, list of str
+        The updates pandas dataframe and a list of replicates
+    """
+    counts = prep.sample_name.value_counts()
+    replicates = counts[counts > 1].index.tolist()
+    # Rename the samples by adding the plate id and the well.
+    # Rename the column sample_name
+    prep.rename(columns={'sample_name': 'original_sample_name'},
+                inplace=True)
+    # Create the new sample name column
+    prep['sample_name'] = prep['original_sample_name']
+    # Rename the samples as needed
+    for r in replicates:
+        for i in prep[prep['original_sample_name'] == r].index:
+            prep.loc[i, 'sample_name'] = _format_sample_id(
+                prep.original_sample_name[i], prep.dna_plate_id[i],
+                prep.row[i] - 1, prep.col[i] - 1)
+
+    # It is ensured that the sample_name column contain unique IDs
+    prep.set_index('sample_name', inplace=True, drop=True)
+
+    return prep, replicates
 
 
 def create_study(title, abstract, description, alias, qiita_user,
@@ -228,73 +261,6 @@ def sync_qiita_study_samples(study_id):
     db.set_study_samples(study_id, samples)
 
 
-def extract_sample_plates(sample_plate_ids, email, robot, kit_lot,
-                          tool, notes=None):
-    """Stores the extraction information for the given sample_plates
-
-    Updates Qiita and Jira accordingly
-
-    Parameters
-    ----------
-    sample_plate_ids : list of int
-        The sample plates being extracted
-    email : str
-        The email of the user preparing the extraction
-    robot : str
-        The name of the robot used for extraction
-    kit_lot : str
-        The kit lot used for extraction
-    tool : str
-        The name of the tool used for extraction
-    notes : str, optional
-        Notes added to the extracted plates
-
-    Returns
-    -------
-    list of int
-        The extracted DNA plates ids
-    """
-    # Store the DNA extraction information on the DB
-    dna_plates = db.extract_sample_plates(sample_plate_ids, email, robot,
-                                          kit_lot, tool, notes)
-
-    study_br = defaultdict(lambda: {'blanks': [], 'replicates': []})
-
-    for dna_plate_id, sample_plate_id in zip(dna_plates, sample_plate_ids):
-        sample_plate = db.read_sample_plate(sample_plate_id)
-
-        # Retrieve the blank samples from the plate
-        blanks = [(s_id, dna_plate_id, row, col)
-                  for s_id, row, col in db.get_blanks_from_sample_plate(
-                    sample_plate_id)]
-
-        if blanks:
-            for study in sample_plate['studies']:
-                study_br[study]['blanks'].extend(blanks)
-
-        # Retrieve the technical replicates from the plate
-        replicates = db.get_replicates_from_sample_plate(sample_plate_id)
-        for sample_id in replicates:
-            sample = db.read_sample(sample_id)
-            wells = replicates[sample_id]
-            study_br[sample['study_id']]['replicates'].extend(
-                [(sample_id, dna_plate_id, well[0], well[1])
-                 for well in wells])
-
-    for study_id in study_br:
-        # Need to update Qiita with the blanks and replicates
-        _update_qiita_samples(study_id, study_br[study_id]['blanks'],
-                              study_br[study_id]['replicates'])
-
-        # Need to update Jira - the issue to update is issue 4
-        study = db.read_study(study_id)
-        issue_key = '%s-4' % study['jira_id']
-        jira_handler.add_comment(
-            issue_key, "Samples have been plated")
-
-    return dna_plates
-
-
 def prepare_targeted_libraries(plate_links, email, robot, tm300tool,
                                tm50tool, mastermix_lot, water_lot):
     """Stores the targeted plate library information
@@ -382,6 +348,19 @@ def create_sequencing_run(pool_id, email, reagent_type, reagent_lot, platform,
 
     run = db.read_sequencing_run(run_id)
     pool = db.read_pool(run['pool_id'])
+
+    # To make sure that we generate the sample sheet correctly, we need to
+    # assess the technical replicates at this time
+    preps = db.generate_prep_information(run_id)
+    for prep in preps:
+        prep, replicates = _assess_replicates(prep)
+        # Update qiita with blanks and replicates
+        blanks = [(sid, prep.original_sample_name[sid])
+                  for sid in prep[prep.is_blank].index]
+        replicates = [(sid, prep.original_sample_name[sid])
+                      for sid in replicates]
+        study_id = prep.study_id.iloc[0]
+        _update_qiita_samples(study_id, blanks, replicates)
 
     # Write the sample sheet
     instrument_type = 'miseq' if instrument_model == 'MiSeq' else 'hiseq'
@@ -518,31 +497,6 @@ def complete_sequencing_run(success, run_id, run_path, logs):
             # Copy the sequencing files to relevant Qiita folders
             atype, filepaths = _copy_sequence_files_to_qiita(prep, run_path)
 
-            # We need to assess the replicates
-            counts = prep.sample_name.value_counts()
-            replicates = counts[counts > 1].index.tolist()
-            # Rename the samples by adding the plate id and the well.
-            # Rename the column sample_name
-            prep.rename(columns={'sample_name': 'original_sample_name'},
-                        inplace=True)
-            # Create the new sample name column
-            prep['sample_name'] = prep['original_sample_name']
-            # Rename the samples as needed
-            for r in replicates:
-                for i in prep[prep['original_sample_name'] == r].index:
-                    prep.loc[i, 'sample_name'] = _format_sample_id(
-                        prep.original_sample_name[i], prep.dna_plate_id[i],
-                        prep.row[i] - 1, prep.col[i] - 1)
-
-            # It is ensured that the sample_name column contain unique IDs
-            prep.set_index('sample_name', inplace=True, drop=True)
-            # Update qiita with blanks and replicates
-            blanks = [(sid, prep.original_sample_name[sid])
-                      for sid in prep[prep.is_blank].index]
-            replicates = [(sid, prep.original_sample_name[sid])
-                          for sid in replicates]
-            _update_qiita_samples(study_id, blanks, replicates)
-
             sc, response = qiita_client.post(
                 '/api/v1/study/%s/preparation?data_type=%s' % (study_id),
                 data=prep.T.to_dict(), asjson=True)
@@ -558,7 +512,7 @@ def complete_sequencing_run(success, run_id, run_path, logs):
             prep_id = response['id']
             payload = {'artifact_type': atype,
                        'filepaths': filepaths,
-                       'artifact_name': r['name']}
+                       'artifact_name': run['name']}
             sc, response = qiita_client.post(
                 '/api/v1/study/%s/preparation/%s/artifact'
                 % (study_id, prep_id), data=payload, asjson=True)

@@ -20,8 +20,9 @@ from knimin import qiita_client, jira_handler, db, config
 from knimin.lib.qiita_jira_util import (
     create_study, _create_kl_jira_project, _format_sample_id,
     _update_qiita_samples, sync_qiita_study_samples,
-    extract_sample_plates, prepare_targeted_libraries,
-    create_sequencing_run, _copy_sequence_files_to_qiita)
+    prepare_targeted_libraries, create_sequencing_run,
+    _copy_sequence_files_to_qiita, _assess_replicates,
+    complete_sequencing_run)
 
 
 class TestQiitaJiraUtil(TestCase):
@@ -169,63 +170,6 @@ class TestQiitaJiraUtil(TestCase):
         sync_qiita_study_samples(1)
         self.assertNotEqual(db.get_study_samples(1), [])
 
-    def test_extract_sample_plates(self):
-        self._create_qiita_test_study()
-        sync_qiita_study_samples(1)
-
-        # Create some plates
-        pt = db.get_plate_types()[0]
-        plate_id = db.create_sample_plate('Test plate', pt['id'], 'test', [1])
-        self._clean_up_funcs.insert(
-            0, partial(db.delete_sample_plate, plate_id))
-
-        samples = db.get_study_samples(1)
-        layout = []
-        row = []
-        for i in range(pt['rows']):
-            for j in range(pt['cols']):
-                row.append({'sample_id': None, 'name': None, 'notes': None})
-            layout.append(row)
-            row = []
-        for i in range(10):
-            layout[0][i]['sample_id'] = samples[i]
-        # Add some blanks
-        layout[1][0]['sample_id'] = 'BLANK'
-        layout[2][0]['sample_id'] = 'BLANK'
-        layout[3][0]['sample_id'] = 'BLANK'
-        # Add some replicates
-        layout[1][1]['sample_id'] = samples[0]
-        layout[2][1]['sample_id'] = samples[1]
-        layout[3][1]['sample_id'] = samples[2]
-        db.write_sample_plate_layout(plate_id, layout)
-
-        dna_plates = extract_sample_plates(
-            [plate_id], 'test', 'HOWE_KF1', 'PM16B11', '108379Z')
-        self._clean_up_funcs.insert(
-            0, partial(db.delete_dna_plate, dna_plates[0]))
-
-        # Check the DB info is not empty
-        self.assertIsNotNone(db.read_dna_plate(dna_plates[0]))
-
-        # Check Qiita has been updated correctly
-        sc, obs = qiita_client.get('/api/v1/study/1/samples')
-        exp = ['1.BLANK.%s.B1' % dna_plates[0],
-               '1.BLANK.%s.C1' % dna_plates[0],
-               '1.BLANK.%s.D1' % dna_plates[0],
-               '%s.%s.A1' % (samples[0], dna_plates[0]),
-               '%s.%s.A2' % (samples[1], dna_plates[0]),
-               '%s.%s.A3' % (samples[2], dna_plates[0]),
-               '%s.%s.B2' % (samples[0], dna_plates[0]),
-               '%s.%s.C2' % (samples[1], dna_plates[0]),
-               '%s.%s.D2' % (samples[2], dna_plates[0])]
-        exp.extend(samples)
-        self.assertItemsEqual(obs, exp)
-
-        # Check Jira has been updated correctly
-        # Magic number 0 -> there is only 1 comment
-        obs = jira_handler.comments('TM1-4')[0].body
-        self.assertEqual(obs, 'Samples have been plated')
-
     def test_prepare_targeted_libraries(self):
         study_id = create_study(
             'Test prepare targeted libraries', 'Abstract', 'Description',
@@ -346,8 +290,69 @@ class TestQiitaJiraUtil(TestCase):
         obs = jira_handler.comments('%s-4' % jira_id)[0].body
         self.assertEqual(obs, 'Target gene libraries have been prepared')
 
+    def test_assess_replicates(self):
+        prep = pd.DataFrame.from_dict(
+            {0: {'target_gene': '16S', 'study_id': 1, 'run_name': 'test_run',
+                 'dna_plate_id': 1, 'row': 1, 'col': 1,
+                 'sample_name': '1.Sample1'},
+             1: {'target_gene': '16S', 'study_id': 1, 'run_name': 'test_run',
+                 'dna_plate_id': 1, 'row': 1, 'col': 2,
+                 'sample_name': '1.Sample2'},
+             2: {'target_gene': '16S', 'study_id': 1, 'run_name': 'test_run',
+                 'dna_plate_id': 1, 'row': 1, 'col': 3,
+                 'sample_name': '1.BLANK'},
+             3: {'target_gene': '16S', 'study_id': 1, 'run_name': 'test_run',
+                 'dna_plate_id': 1, 'row': 1, 'col': 4,
+                 'sample_name': '1.Sample1'},
+             4: {'target_gene': '16S', 'study_id': 1, 'run_name': 'test_run',
+                 'dna_plate_id': 1, 'row': 1, 'col': 5,
+                 'sample_name': '1.Sample2'},
+             5: {'target_gene': '16S', 'study_id': 1, 'run_name': 'test_run',
+                 'dna_plate_id': 1, 'row': 1, 'col': 6,
+                 'sample_name': '1.BLANK'},
+             6: {'target_gene': '16S', 'study_id': 1, 'run_name': 'test_run',
+                 'dna_plate_id': 1, 'row': 1, 'col': 7,
+                 'sample_name': '1.Sample3'}}, orient='index')
+        obs_prep, obs_repl = _assess_replicates(prep)
+        self.assertItemsEqual(obs_repl, ['1.Sample1', '1.Sample2', '1.BLANK'])
+        exp = pd.DataFrame.from_dict(
+            {'1.Sample1.1.A1': {'target_gene': '16S', 'study_id': 1,
+                                'run_name': 'test_run', 'dna_plate_id': 1,
+                                'row': 1, 'col': 1,
+                                'original_sample_name': '1.Sample1'},
+             '1.Sample2.1.A2': {'target_gene': '16S', 'study_id': 1,
+                                'run_name': 'test_run', 'dna_plate_id': 1,
+                                'row': 1, 'col': 2,
+                                'original_sample_name': '1.Sample2'},
+             '1.BLANK.1.A3': {'target_gene': '16S', 'study_id': 1,
+                              'run_name': 'test_run', 'dna_plate_id': 1,
+                              'row': 1, 'col': 3,
+                              'original_sample_name': '1.BLANK'},
+             '1.Sample1.1.A4': {'target_gene': '16S', 'study_id': 1,
+                                'run_name': 'test_run', 'dna_plate_id': 1,
+                                'row': 1, 'col': 4,
+                                'original_sample_name': '1.Sample1'},
+             '1.Sample2.1.A5': {'target_gene': '16S', 'study_id': 1,
+                                'run_name': 'test_run', 'dna_plate_id': 1,
+                                'row': 1, 'col': 5,
+                                'original_sample_name': '1.Sample2'},
+             '1.BLANK.1.A6': {'target_gene': '16S', 'study_id': 1,
+                              'run_name': 'test_run', 'dna_plate_id': 1,
+                              'row': 1, 'col': 6,
+                              'original_sample_name': '1.BLANK'},
+             '1.Sample3': {'target_gene': '16S', 'study_id': 1,
+                           'run_name': 'test_run', 'dna_plate_id': 1,
+                           'row': 1, 'col': 7,
+                           'original_sample_name': '1.Sample3'}},
+            orient='index')
+        obs_prep.sort_index(axis=0, inplace=True)
+        obs_prep.sort_index(axis=1, inplace=True)
+        exp.sort_index(axis=0, inplace=True)
+        exp.sort_index(axis=1, inplace=True)
+        exp.index.name = 'sample_name'
+        pd.util.testing.assert_frame_equal(obs_prep, exp)
+
     def test_copy_sequence_files_to_qiita(self):
-        # target_gene, study_id, run_name
         prep = pd.DataFrame.from_dict(
             {'1.Sample1': {'target_gene': '16S', 'study_id': 1,
                            'run_name': 'test_run'},
@@ -399,6 +404,9 @@ class TestQiitaJiraUtil(TestCase):
         for fp in qiita_fps:
             self.assertTrue(exists(fp))
             self._clean_up_funcs.append(partial(remove, fp))
+
+    def test_complete_sequencing_run(self):
+        pass
 
 
 if __name__ == '__main__':
