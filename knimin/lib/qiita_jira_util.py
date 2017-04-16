@@ -8,6 +8,10 @@
 
 from collections import defaultdict
 from os.path import join
+from functools import partial
+from glob import glob
+from os.path import basename
+from shutil import copy
 
 from tornado.escape import json_encode
 
@@ -40,6 +44,7 @@ def _format_sample_id(sample_id, plate_id, row, col):
     return "%s.%s.%s" % (sample_id, plate_id, well)
 
 
+# TODO
 def _update_qiita_samples(study_id, blanks, replicates):
     """Updates the qiita study with blanks and technical replicates
 
@@ -420,6 +425,67 @@ def create_sequencing_run(pool_id, email, reagent_type, reagent_lot, platform,
     return run_id, jira_links
 
 
+def _copy_sequence_files_to_qiita(prep, run_path):
+    """
+    Parameters
+    ----------
+    prep : pandas.DataFrame
+        The prep information
+    run_path : str
+        Path to the directory with the sequencing files
+
+    Returns
+    -------
+    str, list of (str, str)
+        The artifact type and a list of filepaths with
+        their Qiita filepath type
+    """
+    full_fps = []
+    path_builder = partial(join, run_path)
+    study_id = str(prep.study_id.iloc[0])
+    # The structure of the files is different depending on whether the
+    # run is of shotgun / target gene and on Hiseq/MiSeq
+    if 'target_gene' in prep:
+        # Target gene prep. The output is a non-demultiplexed FASTQ
+        atype = 'FASTQ'
+        # The files are named with the run_name
+        run_name = prep.run_name.iloc[0]
+        # Start with the forward reads
+        full_fps.extend(
+            [(fp, 'raw_forward_seqs')
+             for fp in glob(path_builder('%s_*_R1_*.fastq.gz' % run_name))])
+        # Add the reverse reads
+        full_fps.extend(
+            [(fp, 'raw_reverse_seqs')
+             for fp in glob(path_builder('%s_*_R2_*.fastq.gz' % run_name))])
+        # Add the index reads
+        full_fps.extend(
+            [(fp, 'raw_barcodes')
+             for fp in glob(path_builder('%s_*_I1_*.fastq.gz' % run_name))])
+    else:
+        # Shotgun prep. The output is per sample fastq
+        atype = 'per_sample_FASTQ'
+        # The samples are prefixed with the study id - take advantage of that
+        # Start with the forward reads
+        full_fps.extend(
+            [(fp, 'raw_forward_seqs')
+             for fp in glob(path_builder('%s_*_R1_*.fastq.gz' % study_id))])
+        # Add the reverse reads
+        full_fps.extend(
+            [(fp, 'raw_reverse_seqs')
+             for fp in glob(path_builder('%s_*_R2_*.fastq.gz' % study_id))])
+
+    qiita_study_path = join(config.qiita_uploads_dir, study_id)
+
+    filepaths = []
+    for full_fp, fp_type in full_fps:
+        file_name = basename(full_fp)
+        copy(full_fp, qiita_study_path)
+        filepaths.append((file_name, fp_type))
+
+    return atype, filepaths
+
+
 def complete_sequencing_run(success, run_id, run_path, logs):
     """Updates the Jira project and attaches the sequencing data to run_path
 
@@ -436,53 +502,53 @@ def complete_sequencing_run(success, run_id, run_path, logs):
     """
     run = db.read_sequencing_run(run_id)
 
-    # Get the studies information
-    studies = []
-    for targeted_pool in db.read_pool(run['pool_id'])['targeted_pools']:
-        targeted_plate = db.read_targeted_plate(
-            targeted_pool['targeted_plate_id'])
-        dna_plate = db.read_dna_plate(targeted_plate['dna_plate_id'])
-        sample_plate = db.read_sample_plate(dna_plate['sample_plate_id'])
-        studies.extend(sample_plate['studies'])
+    # Retrieve the prep template information from the DB)
+    preps = db.generate_prep_information(run_id)
+    studies = [prep.study_id.iloc[0] for prep in preps]
 
-    failures = {}
+    failures = defaultdict(list)
     if success:
         jira_comment = "Sequencing complete. Path to raw files: %s" % run_path
-        # Retrieve the prep template information from the DB)
-        preps = db.generate_prep_information(run_id)
         # Push the prep information to Qiita
         for prep in preps:
             # All the rows have the same value, so I just need to access
             # to a random row to get the study_id -> 0 is guaranteed to exist
             study_id = prep.study_id.iloc[0]
 
-            # TODO: Copy the sequencing files to relevant Qiita folders
+            # Copy the sequencing files to relevant Qiita folders
+            atype, filepaths = _copy_sequence_files_to_qiita(prep, run_path)
 
             # We need to assess the replicates
             counts = prep.sample_name.value_counts()
             replicates = counts[counts > 1].index.tolist()
-            if replicates:
-                # There are replicates, rename the samples by adding the
-                # plate id and the well. Rename the column sample_name
-                prep.rename(columns={'sample_name': 'original_sample_name'},
-                            inplace=True)
-                # Create the new sample name column
-                prep['sample_name'] = prep['original_sample_name']
-                # Rename the samples as needed
-                for r in replicates:
-                    for i in prep[prep['original_sample_name'] == r].index:
-                        prep.loc[i, 'sample_name'] = _format_sample_id(
-                            prep.original_sample_name[i], prep.dna_plate_id[i],
-                            prep.row[i] - 1, prep.col[i] - 1)
+            # Rename the samples by adding the plate id and the well.
+            # Rename the column sample_name
+            prep.rename(columns={'sample_name': 'original_sample_name'},
+                        inplace=True)
+            # Create the new sample name column
+            prep['sample_name'] = prep['original_sample_name']
+            # Rename the samples as needed
+            for r in replicates:
+                for i in prep[prep['original_sample_name'] == r].index:
+                    prep.loc[i, 'sample_name'] = _format_sample_id(
+                        prep.original_sample_name[i], prep.dna_plate_id[i],
+                        prep.row[i] - 1, prep.col[i] - 1)
 
             # It is ensured that the sample_name column contain unique IDs
             prep.set_index('sample_name', inplace=True, drop=True)
+            # Update qiita with blanks and replicates
+            blanks = [(sid, prep.original_sample_name[sid])
+                      for sid in prep[prep.is_blank].index]
+            replicates = [(sid, prep.original_sample_name[sid])
+                          for sid in replicates]
+            _update_qiita_samples(study_id, blanks, replicates)
+
             sc, response = qiita_client.post(
                 '/api/v1/study/%s/preparation?data_type=%s' % (study_id),
                 data=prep.T.to_dict(), asjson=True)
             if sc != 201:
                 msg = response['message'] if response else 'No error specified'
-                failures[study_id] = (
+                failures[study_id].append(
                     "[CRITICAL]: FAILURE: Creating Prep Information in study "
                     "%s failed: (%s) %s" % (study_id, sc, msg))
                 continue
@@ -490,16 +556,15 @@ def complete_sequencing_run(success, run_id, run_path, logs):
             # At this point the prep information has been created and the
             # sequencing files are there. Attach the files to the prep
             prep_id = response['id']
-            payload = {'artifact_type': 'FASTQ',
-                       'filepaths': [['foo.txt', 1],
-                                     ['bar.txt', 'raw_barcodes']],
-                       'artifact_name': 'a name is a name'}
+            payload = {'artifact_type': atype,
+                       'filepaths': filepaths,
+                       'artifact_name': r['name']}
             sc, response = qiita_client.post(
                 '/api/v1/study/%s/preparation/%s/artifact'
                 % (study_id, prep_id), data=payload, asjson=True)
             if sc != 201:
                 msg = response['message'] if response else "No error specified"
-                failures[study_id] = (
+                failures[study_id].append(
                     "[CRITICAL]: FAILURE: Attaching files to prep information "
                     "%s of study %s failed: (%s) %s"
                     % (prep_id, study_id, sc, msg))
@@ -514,7 +579,7 @@ def complete_sequencing_run(success, run_id, run_path, logs):
         issue_key = '%s-5' % study['jira_id']
         jira_handler.add_comment(issue_key, jira_comment)
 
-        error_comment = failures.get(study_id)
+        error_comment = failures[study_id]
         if error_comment:
             jira_handler.add_comment(issue_key, error_comment)
 

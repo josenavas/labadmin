@@ -9,13 +9,18 @@
 from unittest import TestCase, main
 from traceback import format_exc
 from functools import partial
+from tempfile import mkdtemp
+from shutil import rmtree
+from os.path import join, exists
 
-from knimin import qiita_client, jira_handler, db
+import pandas as pd
+
+from knimin import qiita_client, jira_handler, db, config
 from knimin.lib.qiita_jira_util import (
     create_study, _create_kl_jira_project, _format_sample_id,
     _update_qiita_samples, sync_qiita_study_samples,
     extract_sample_plates, prepare_targeted_libraries,
-    create_sequencing_run)
+    create_sequencing_run, _copy_sequence_files_to_qiita)
 
 
 class TestQiitaJiraUtil(TestCase):
@@ -339,6 +344,57 @@ class TestQiitaJiraUtil(TestCase):
         # Check that JIRA has been updated
         obs = jira_handler.comments('%s-4' % jira_id)[0].body
         self.assertEqual(obs, 'Target gene libraries have been prepared')
+
+    def test_copy_sequence_files_to_qiita(self):
+        # target_gene, study_id, run_name
+        prep = pd.DataFrame.from_dict(
+            {'1.Sample1': {'target_gene': '16S', 'study_id': 1,
+                           'run_name': 'test_run'},
+             '1.Sample2': {'target_gene': '16S', 'study_id': 1,
+                           'run_name': 'test_run'},
+             '1.Sample3': {'target_gene': '16S', 'study_id': 1,
+                           'run_name': 'test_run'}}, orient='index')
+        # Mock a targeted run
+        run_dp = mkdtemp()
+        self._clean_up_funcs.append(partial(rmtree, run_dp))
+        exp_fn = ['test_run_LANE_R1_001.fastq.gz',
+                  'test_run_LANE_R2_001.fastq.gz',
+                  'test_run_LANE_I1_001.fastq.gz']
+        for fn in exp_fn:
+            with open(join(run_dp, fn), 'w') as f:
+                f.write('\n')
+        qiita_fps = [join(config.qiita_uploads_dir, '1', bn) for bn in exp_fn]
+        exp_fps = [('test_run_LANE_R1_001.fastq.gz', 'raw_forward_seqs'),
+                   ('test_run_LANE_R2_001.fastq.gz', 'raw_reverse_seqs'),
+                   ('test_run_LANE_I1_001.fastq.gz', 'raw_barcodes')]
+        obs_atype, obs_fps = _copy_sequence_files_to_qiita(prep, run_dp)
+        self.assertEqual(obs_atype, "FASTQ")
+        self.assertItemsEqual(obs_fps, exp_fps)
+        for fp in qiita_fps:
+            self.assertTrue(exists(fp))
+
+        # Mock a shotgun run
+        del prep['target_gene']
+        run_dp = mkdtemp()
+        self._clean_up_funcs.append(partial(rmtree, run_dp))
+        exp_fn = []
+        for s in ['1_Sample1', '1_Sample2', '1_Sample3']:
+            for ext in ['%s_LANE_R1_001.fastq.gz', '%s_LANE_R2_001.fastq.gz']:
+                fn = ext % s
+                exp_fn.append(fn)
+                with open(join(run_dp, fn), 'w') as f:
+                    f.write('\n')
+        exp_fps = [('1_Sample1_LANE_R1_001.fastq.gz', 'raw_forward_seqs'),
+                   ('1_Sample1_LANE_R2_001.fastq.gz', 'raw_reverse_seqs'),
+                   ('1_Sample2_LANE_R1_001.fastq.gz', 'raw_forward_seqs'),
+                   ('1_Sample2_LANE_R2_001.fastq.gz', 'raw_reverse_seqs'),
+                   ('1_Sample3_LANE_R1_001.fastq.gz', 'raw_forward_seqs'),
+                   ('1_Sample3_LANE_R2_001.fastq.gz', 'raw_reverse_seqs')]
+        obs_atype, obs_fps = _copy_sequence_files_to_qiita(prep, run_dp)
+        self.assertEqual(obs_atype, "per_sample_FASTQ")
+        self.assertItemsEqual(obs_fps, exp_fps)
+        for fp in qiita_fps:
+            self.assertTrue(exists(fp))
 
 
 if __name__ == '__main__':
