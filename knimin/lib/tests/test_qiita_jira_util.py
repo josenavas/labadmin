@@ -12,6 +12,7 @@ from functools import partial
 from tempfile import mkdtemp
 from shutil import rmtree
 from os.path import join, exists
+from os import remove
 
 import pandas as pd
 
@@ -372,6 +373,7 @@ class TestQiitaJiraUtil(TestCase):
         self.assertItemsEqual(obs_fps, exp_fps)
         for fp in qiita_fps:
             self.assertTrue(exists(fp))
+            self._clean_up_funcs.append(partial(remove, fp))
 
         # Mock a shotgun run
         del prep['target_gene']
@@ -384,6 +386,7 @@ class TestQiitaJiraUtil(TestCase):
                 exp_fn.append(fn)
                 with open(join(run_dp, fn), 'w') as f:
                     f.write('\n')
+        qiita_fps = [join(config.qiita_uploads_dir, '1', bn) for bn in exp_fn]
         exp_fps = [('1_Sample1_LANE_R1_001.fastq.gz', 'raw_forward_seqs'),
                    ('1_Sample1_LANE_R2_001.fastq.gz', 'raw_reverse_seqs'),
                    ('1_Sample2_LANE_R1_001.fastq.gz', 'raw_forward_seqs'),
@@ -395,6 +398,7 @@ class TestQiitaJiraUtil(TestCase):
         self.assertItemsEqual(obs_fps, exp_fps)
         for fp in qiita_fps:
             self.assertTrue(exists(fp))
+            self._clean_up_funcs.append(partial(remove, fp))
 
 
 if __name__ == '__main__':
