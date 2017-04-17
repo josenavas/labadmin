@@ -21,32 +21,34 @@ from knimin.lib.qiita_jira_util import (
 
 class TestPMSequenceHandler(TestHandlerBase):
     def _create_data(self):
-        _create_kl_jira_project('admin', 'Task management', 9999,
+        # Create a study
+        study_id = 1
+        # Creating the Qiita test study in Jira and the DB
+        _create_kl_jira_project('admin', 'Task management', study_id,
                                 'LabAdmin test project')
         self._clean_up_funcs.append(
-            partial(jira_handler.delete_project, 'TM9999'))
+            partial(jira_handler.delete_project, 'TM%s' % study_id))
 
-        # Create a study
-        db.create_study(9999, title='LabAdmin test project', alias='LTP',
-                        jira_id='TM9999')
-        self._clean_up_funcs.append(partial(db.delete_study, 9999))
+        db.create_study(
+            study_id, 'Identification of the Microbiomes for Cannabis Soils',
+            'alias', 'TM%s' % study_id)
+        self._clean_up_funcs.append(partial(db.delete_study, study_id))
 
-        # Create some sample plates
+        # Create some plates
         pt = db.get_plate_types()[0]
         plate_id = db.create_sample_plate('Test plate', pt['id'], 'test',
-                                          [9999])
+                                          [study_id])
         self._clean_up_funcs.insert(
             0, partial(db.delete_sample_plate, plate_id))
         plate_id_2 = db.create_sample_plate('Test plate 2', pt['id'], 'test',
-                                            [9999])
+                                            [study_id])
         self._clean_up_funcs.insert(
             0, partial(db.delete_sample_plate, plate_id_2))
 
         # Plate some samples
         # Add samples to the study
-        samples = ['9999.Sample_1', '9999.Sample_2', '9999.Sample_3',
-                   '9999.Sample_3']
-        db.set_study_samples(9999, samples)
+        sync_qiita_study_samples(study_id)
+        samples = db.get_study_samples(study_id)
 
         # Create the layout
         layout = []

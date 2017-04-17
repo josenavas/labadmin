@@ -62,6 +62,7 @@ def _update_qiita_samples(study_id, blanks, replicates):
         If there is any problem accessing the Qiita REST API
     """
     # Existing metadata_categories
+    study_id = int(study_id)
     sc, categories = qiita_client.get(
         '/api/v1/study/%s/samples/info' % study_id)
     if sc != 200:
