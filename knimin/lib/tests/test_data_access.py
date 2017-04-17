@@ -2284,7 +2284,7 @@ class TestDataAccess(TestCase):
         # Generate the prep information
         preps = db.generate_prep_information(run_id)
 
-        # There where 2 studies in this run, so we should get 2 preps
+        # There were 2 studies in this run, so we should get 2 preps
         self.assertEqual(len(preps), 2)
 
         # Check that we have the expected columns in both preps

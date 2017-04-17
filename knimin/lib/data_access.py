@@ -5033,7 +5033,6 @@ class KniminAccess(object):
         for fullprep in [target_prep]:  # , shotgun_prep]:
             blank = fullprep.loc[fullprep.is_blank]
             notblank = fullprep.loc[~fullprep.is_blank]
-            notblank.loc[:, 'study_id'] = notblank.study_id.astype(int)
 
             for study, study_grp in notblank.groupby('study_id'):
                 # sample IDs are missing replicate information
