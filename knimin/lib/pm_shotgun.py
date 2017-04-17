@@ -25,10 +25,12 @@ def compute_shotgun_normalization_values(plate_layout, input_vol, input_dna):
 
     Returns
     -------
-    2d numpy array, 2d numpy array
-        The water volume and the sample volume pwe well, represented in
-        nanoliters
+    2d numpy array, 2d numpy array, 2d numpy array
+        The water volume and the sample volume per well, represented in
+        nanoliters as well as the original dna concentrartion in ng/nL
     """
+    input_dna = float(input_dna)
+    input_vol = float(input_vol)
     rows = len(plate_layout)
     cols = len(plate_layout[0])
     dna_conc = np.zeros((rows, cols), dtype=np.float)

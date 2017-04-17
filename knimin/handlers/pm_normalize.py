@@ -7,10 +7,14 @@
 # -----------------------------------------------------------------------------
 
 from tornado.web import authenticated
+from datetime import date
 
 from knimin.handlers.base import BaseHandler
 from knimin.handlers.access_decorators import set_access
 from knimin import db
+from knimin.lib.parse import parse_plate_reader_output
+from knimin.lib.format import format_normalization_echo_pick_list
+from knimin.lib.pm_shotgun import compute_shotgun_normalization_values
 
 
 @set_access(['Admin'])
@@ -29,39 +33,54 @@ class PMNormalizeHandler(BaseHandler):
             p['created_on'] = p['created_on'].isoformat(sep=' ')
             plate['condensed_plates'].append((pos, p))
 
-        self.render("pm_normalize.html", plate=plate)
+        self.render("pm_normalize.html", plate=plate,
+                    plate_readers=db.get_property_options("plate_reader"),
+                    echos=db.get_property_options("echo"))
 
     @authenticated
     def post(self):
+        plate_id = self.get_argument("plate_id")
         input_vol = self.get_argument("pm-volume")
         input_dna = self.get_argument("pm-dna-input")
         upload_type = self.get_argument("upload-select")
-
-        print input_vol
-        print input_dna
+        plate_reader = self.get_argument("plate-reader")
+        echo = self.get_argument("echo")
 
         if upload_type == 'Single file':
-            print self.request.files
             qubit_assay = self.request.files['single-plate-fp'][0]['body']
-            print qubit_assay
-            # TODO: process single file
+            db.quantify_shotgun_plate()
+            dna_conc = parse_plate_reader_output(qubit_assay)
+            cond_dna_conc = None
         else:
-            # TODO: process four files
             qubit_assay_0 = self.request.files['plate-0-fp'][0]['body']
             qubit_assay_1 = self.request.files['plate-1-fp'][0]['body']
             qubit_assay_2 = self.request.files['plate-2-fp'][0]['body']
             qubit_assay_3 = self.request.files['plate-3-fp'][0]['body']
-            print qubit_assay_0
-            print qubit_assay_1
-            print qubit_assay_2
-            print qubit_assay_3
+            dna_conc_0 = parse_plate_reader_output(qubit_assay_0)
+            dna_conc_1 = parse_plate_reader_output(qubit_assay_1)
+            dna_conc_2 = parse_plate_reader_output(qubit_assay_2)
+            dna_conc_3 = parse_plate_reader_output(qubit_assay_3)
+            dna_conc = None
+            cond_dna_conc = [dna_conc_0, dna_conc_1, dna_conc_2, dna_conc_3]
 
-        # dna_loaded = self.get_argument('dna-loaded')
-        # p1_file = self.request.files['plate-1-file'][0]['body']
-        # p2_file = self.request.files['plate-2-file'][0]['body']
-        # p3_file = self.request.files['plate-3-file'][0]['body']
-        # p4_file = self.request.files['plate-4-file'][0]['body']
-        # col_1_file = self.request.files['col-1-file'][0]['body']
+        db.quantify_shotgun_plate(plate_id, self.get_current_user(),
+                                  input_vol, plate_reader, dna_conc,
+                                  cond_dna_conc)
 
-        # db.normalize_shotgun_plate(dna_loaded, p1_file, p2_file, p3_file,
-        #                            p4_file, col_1_file)
+        plate = db.read_shotgun_plate(plate_id)
+        vol_sample, vol_water = compute_shotgun_normalization_values(
+            plate['shotgun_plate_layout'], input_vol, input_dna)
+
+        db.normalize_shotgun_plate(plate_id, self.get_current_user(), echo,
+                                   vol_sample, vol_water)
+
+        data = format_normalization_echo_pick_list(vol_sample, vol_water)
+        file_name = "echo_norm_PickList_%s_%s_%s.csv" % (
+            plate['id'], plate['name'], date.today().strftime('%Y_%m_%d'))
+
+        self.set_header('Content-Type', 'application/octet-stream')
+        self.set_header('Content-Disposition',
+                        'attachment; filename=' + file_name)
+        self.write(data)
+        self.flush()
+        self.finish()
