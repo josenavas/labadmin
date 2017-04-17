@@ -14,7 +14,7 @@ from knimin.handlers.access_decorators import set_access
 from knimin import db
 from knimin.lib.parse import parse_plate_reader_output
 from knimin.lib.format import format_normalization_echo_pick_list
-from knimin.lib.pm_shotgun import compute_shotgun_normalization_values
+from knimin.lib.shotgun import compute_shotgun_normalization_values
 
 
 @set_access(['Admin'])
