@@ -140,16 +140,13 @@ def _assess_replicates(prep):
     Returns
     -------
     pandas.DataFrame, list of str
-        The updates pandas dataframe and a list of replicates
+        The updated pandas dataframe and a list of replicates
     """
     counts = prep.sample_name.value_counts()
     replicates = counts[counts > 1].index.tolist()
     # Rename the samples by adding the plate id and the well.
     # Rename the column sample_name
-    prep.rename(columns={'sample_name': 'original_sample_name'},
-                inplace=True)
-    # Create the new sample name column
-    prep['sample_name'] = prep['original_sample_name']
+    prep['original_sample_name'] = prep['sample_name'].copy()
     # Rename the samples as needed
     new_sample_ids = []
     for r in replicates:
@@ -350,7 +347,7 @@ def create_sequencing_run(pool_id, email, reagent_type, reagent_lot, platform,
     for prep in preps:
         prep, replicates = _assess_replicates(prep)
         # Update qiita with blanks and replicates
-        blanks = [sid for sid in prep[prep.is_blank].index]
+        blanks = prep[prep.is_blank].index.tolist()
         replicates = [(sid, prep.original_sample_name[sid])
                       for sid in replicates if sid not in blanks]
         study_id = prep.study_id.iloc[0]
