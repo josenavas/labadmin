@@ -109,5 +109,9 @@ class KniminConfig(object):
         self.pm_sample_sheet_dir = config.get('platemapper',
                                               'SAMPLE_SHEET_DIR')
 
+    def _get_platemapper(self, config):
+        self.pm_sample_sheet_dir = config.get('platemapper',
+                                              'SAMPLE_SHEET_DIR')
+
 
 config = KniminConfig()
