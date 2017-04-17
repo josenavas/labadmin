@@ -44,7 +44,6 @@ class PMSequenceHandler(BaseHandler):
         run = db.read_sequencing_run(run_id)
         self.render("pm_sequence_success.html", run=run, jira_links=jira_links)
 
-
 @set_access(['Admin'])
 class PMSequencingCompleteHandler(BaseHandler):
     @authenticated
