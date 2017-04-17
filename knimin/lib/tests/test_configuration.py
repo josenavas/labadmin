@@ -66,10 +66,6 @@ class ConfigurationTests(TestCase):
         config = KniminConfig(self.config_fp)
         self.assertEqual(config.pm_sample_sheet_dir, '/some/path/to/dir/')
 
-    def test_get_platemapper(self):
-        config = KniminConfig(self.config_fp)
-        self.assertEqual(config.pm_sample_sheet_dir, '/some/path/to/dir/')
-
 
 test_config = """[main]
 debug = True
