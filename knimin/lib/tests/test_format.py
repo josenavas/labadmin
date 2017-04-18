@@ -36,10 +36,8 @@ class FormatTests(unittest.TestCase):
         self.assertEqual(obs[2], '1,a2,1,5,1.200,1')
 
     def test_format_normalization_echo_pick_list(self):
-        vol_sample = np.zeros((4, 4), dtype=np.float)
-        vol_sample.fill(1.5)
-        vol_water = np.zeros((4, 4), dtype=np.float)
-        vol_water.fill(2)
+        vol_sample = np.full((4, 4), 1.5, dtype=np.float)
+        vol_water = np.full((4, 4), 2.0, dtype=np.float)
 
         obs = format_normalization_echo_pick_list(vol_sample, vol_water)
         obs_lines = obs.splitlines()

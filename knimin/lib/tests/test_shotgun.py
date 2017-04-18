@@ -51,7 +51,7 @@ class TestShotgun(TestCase):
         npt.assert_almost_equal(obs_sample, exp_sample)
         npt.assert_almost_equal(obs_water, exp_water)
 
-        # Make sure that we don't go abaove the limit
+        # Make sure that we don't go above the limit
         plate_layout[1][1]['dna_concentration'] = 0.25
         obs_sample, obs_water = compute_shotgun_normalization_values(
             plate_layout, input_vol, input_dna)

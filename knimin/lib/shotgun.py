@@ -184,13 +184,13 @@ def compute_shotgun_normalization_values(plate_layout, input_vol, input_dna):
     dna_conc = np.zeros((rows, cols), dtype=np.float)
     for i in range(rows):
         for j in range(cols):
-            dna_conc[i][j] = plate_layout[i][j]['dna_concentration']
+            dna_conc[i, j] = plate_layout[i][j]['dna_concentration']
 
     # Compute how much sample do we need
     # ng / (ng/uL) -> uL
     vol_sample = input_dna / dna_conc
 
-    # If a sample didn't have enough concentration simple put the totally of
+    # If a sample didn't have enough concentration simple put the total of
     # the volume from the sample
     vol_sample[vol_sample > input_vol] = input_vol
 

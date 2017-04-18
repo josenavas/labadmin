@@ -4753,6 +4753,10 @@ class KniminAccess(object):
                         for cid, well in enumerate(row):
                             new_cid = 2 * cid
                             new_rid = 2 * rid
+                            # We need to fix the indexes so that each well
+                            # in the 96 well plate matches the correct well on
+                            # the 384 well plate. The position of these wells
+                            # is given by this image: https://goo.gl/UCS7Wh
                             if order in (1, 3):
                                 new_cid = new_cid + 1
                             if order in (2, 3):

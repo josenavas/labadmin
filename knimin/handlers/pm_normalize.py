@@ -52,16 +52,11 @@ class PMNormalizeHandler(BaseHandler):
             dna_conc = parse_plate_reader_output(qubit_assay)
             cond_dna_conc = None
         else:
-            qubit_assay_0 = self.request.files['plate-0-fp'][0]['body']
-            qubit_assay_1 = self.request.files['plate-1-fp'][0]['body']
-            qubit_assay_2 = self.request.files['plate-2-fp'][0]['body']
-            qubit_assay_3 = self.request.files['plate-3-fp'][0]['body']
-            dna_conc_0 = parse_plate_reader_output(qubit_assay_0)
-            dna_conc_1 = parse_plate_reader_output(qubit_assay_1)
-            dna_conc_2 = parse_plate_reader_output(qubit_assay_2)
-            dna_conc_3 = parse_plate_reader_output(qubit_assay_3)
             dna_conc = None
-            cond_dna_conc = [dna_conc_0, dna_conc_1, dna_conc_2, dna_conc_3]
+            cond_dna_conc = [
+                parse_plate_reader_output(
+                    self.request.files['plate-%d-fp' % i][0]['body'])
+                for i in range(4)]
 
         db.quantify_shotgun_plate(plate_id, self.get_current_user(),
                                   input_vol, plate_reader, dna_conc,
@@ -82,5 +77,4 @@ class PMNormalizeHandler(BaseHandler):
         self.set_header('Content-Disposition',
                         'attachment; filename=' + file_name)
         self.write(data)
-        self.flush()
         self.finish()
