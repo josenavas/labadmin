@@ -72,7 +72,7 @@ def format_normalization_echo_pick_list(vol_sample, vol_water):
 
 
 def format_pooling_echo_pick_list(vol_sample):
-    """Format the contents of an echo pooling pick list file_name
+    """Format the contents of an echo pooling pick list
 
     Parameters
     ----------
