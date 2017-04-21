@@ -15,8 +15,10 @@
 
     // Retrieve information
     var plates = [];
+    var names = [];
     $.each($(".list-group-item"), function(idx, item) {
       plates.push($(item).attr("pm-id"));
+      names.push($(item).find(":input").val());
     });
 
     var robot = $("#extraction-robot-select").val();
@@ -40,7 +42,7 @@
 
     if (success) {
       var form = $('<form>', {action: $(location).attr('href'), method: 'post'});
-      var fields = {'plates': JSON.stringify(plates), 'robot': robot, 'tool': tool, 'kit': kit};
+      var fields = {'plates': JSON.stringify(plates), 'robot': robot, 'tool': tool, 'kit': kit, 'names': JSON.stringify(names)};
       $.each(fields, function(key, val) {
         $('<input>').attr({type: "hidden", name: key, value: val}).appendTo(form);
       });
@@ -110,7 +112,11 @@
       var plateName = $("#plate-select option[value=" + plateId + "]").attr('pm-name');
 
       // Add the new plate to the list
-      var $li = $('<li>').addClass('list-group-item justify-content-between').attr('id', 'li-plate-' + plateId).attr('pm-id', plateId).html('(ID: ' + plateId + ') ' + plateName).appendTo($("#lu-plate-list"));
+      var $li = $('<li>').addClass('list-group-item justify-content-between').attr('id', 'li-plate-' + plateId).attr('pm-id', plateId).appendTo($("#lu-plate-list"));
+      $('<label>').text('(ID: ' + plateId + ') ' + plateName + ' - Extracted plate name: ').appendTo($li);
+      var timestamp = getTimestamp();
+      $('<input>').attr('type', 'text').val(plateName + ' - ' + timestamp).appendTo($li);
+
       var $btn = $('<button>').addClass('btn-danger glyphicon glyphicon-remove pull-right').html(" ").appendTo($li);
       $btn.attr('pm-name', plateName).attr('pm-id', plateId);
       $btn.click(function (e) {
@@ -149,6 +155,7 @@
 </script>
 {% end %}
 {% block content %}
+{% from datetime import datetime %}
 <label><h3>Extract plates</h3></label>
 </br>
 <div class='container'>
@@ -157,7 +164,10 @@
   <label>Plates being extracted: <button class="btn btn-success btn-add" data-toggle='modal' data-target="#add-plate-modal"><span class="glyphicon glyphicon-plus"></span></button></label>
   <ul class="list-group" id="lu-plate-list">
     {% for p_id, p_name in zip(plate_ids, plate_names) %}
-      <li class="list-group-item" id="li-plate-{{plate_id}}" pm-id="{{plate_id}}">(ID: {{p_id}}) {{p_name}}</li>
+      <li class="list-group-item" id="li-plate-{{plate_id}}" pm-id="{{plate_id}}">
+        <label>(ID: {{p_id}}) {{p_name}} - Extracted plate name:</label>
+        <input type="text" value="{{ "%s - %s" % (p_name, datetime.now().isoformat(sep=' ')) }}" />
+      </li>
     {% end %}
   </ul>
 

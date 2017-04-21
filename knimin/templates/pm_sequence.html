@@ -4,9 +4,16 @@
 <script></script>
 {% end %}
 {% block content %}
+{% from datetime import datetime %}
 <h3>Prepare sequencing run for sample pool: {{pool['name']}} (ID: {{pool['id']}})</h3>
 <div class='container'>
   <form action="/pm_sequence/" method="post">
+    <div class="row">
+      <div class='col-xs-6 form-group'>
+        <label>Run name</label>
+        <input name='name' type='text' value='{{ "%s_%s" % (pool['name'], datetime.now().strftime('%Y%m%d_%H%M%S')) }}'></input>
+      </div>
+    </div>
     <div class="row">
       <!-- Platform -->
       <div class='col-xs-4 form-group'>

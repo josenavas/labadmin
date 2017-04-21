@@ -302,7 +302,8 @@ def prepare_targeted_libraries(plate_links, email, robot, tm300tool,
 
 
 def create_sequencing_run(pool_id, email, reagent_type, reagent_lot, platform,
-                          instrument_model, assay, fwd_cycles, rev_cycles):
+                          instrument_model, assay, fwd_cycles, rev_cycles,
+                          name=None):
     """Stores the sequencing run information
 
     Parameters
@@ -337,7 +338,7 @@ def create_sequencing_run(pool_id, email, reagent_type, reagent_lot, platform,
     # folder.
     run_id = db.create_sequencing_run(
         pool_id, email, None, reagent_type, reagent_lot, platform,
-        instrument_model, assay, fwd_cycles, rev_cycles)
+        instrument_model, assay, fwd_cycles, rev_cycles, name=name)
 
     run = db.read_sequencing_run(run_id)
     pool = db.read_pool(run['pool_id'])

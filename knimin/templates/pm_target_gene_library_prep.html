@@ -13,6 +13,7 @@
     $.each($('.entry'), function (idx, entry) {
       var dnaId = $(entry).find('.dna-plate:first').val();
       var primerId = $(entry).find('.primer-plate:first').val();
+      var name = $(entry).find('.targeted-name:first').val();
 
       $(entry).removeClass('has-error').find('.glyphicon-warning-sign:first').hide();
 
@@ -28,7 +29,7 @@
         success = false;
         $(entry).addClass('has-error').find('.glyphicon-warning-sign:first').show();
       } else {
-        plates.push({'dna_plate_id': dnaId, 'primer_plate_id': primerId});
+        plates.push({'dna_plate_id': dnaId, 'primer_plate_id': primerId, 'name': name});
       }
     });
 
@@ -104,8 +105,9 @@
     var plates = {% raw dumps(dna_plates) %};
     $.each(plates, function (idx, plate) {
       var display = "(ID: " + plate.id + ") " + plate.name + " - " + plate.date;
-      $('<option>').attr('value', plate.id).text(display).appendTo(elem);
+      $('<option>').attr('value', plate.id).attr('pm-name', plate.name).text(display).appendTo(elem);
     });
+    $(elem).change(dnaPlateChange);
   };
 
   /**
@@ -122,6 +124,11 @@
       $('<option>').attr('value', plate.id).text(display).appendTo(elem);
     });
   };
+
+  function dnaPlateChange() {
+    var val = $(this).children(':selected').attr('pm-name') + ' ' + getTimestamp();
+    $(this).parents('.entry:first').find('.targeted-name:first').val(val);
+  }
 
   $(document).ready(function() {
     var masterMixLots = {% raw dumps([v['name'] for v in mastermixlots]) %};
@@ -157,15 +164,18 @@
       var controlForm = $('.tag-controls');
       var currentEntry = $(this).parents('.entry:first');
       var newEntry = $('<div class="entry row">' +
-                         '<div class="col-xs-5 form-group">' +
+                         '<div class="col-xs-3 form-group">' +
                            '<select class="form-control plate-select dna-plate">' +
                              '<option selected value="-1">Choose a dna plate</option>' +
                            '</select>' +
                          '</div>' +
-                         '<div class="col-xs-5 form-group">' +
+                         '<div class="col-xs-3 form-group">' +
                            '<select class="form-control plate-select primer-plate">' +
                              '<option selected value="-1">Choose a primer plate</option>' +
                            '</select>' +
+                         '</div>' +
+                         '<div class="col-xs-3 form-group">' +
+                           '<input type="text" class="form-control targeted-name"></input>' +
                          '</div>' +
                          '<div class="col-xs-1 form-group">' +
                            '<button class="btn btn-success btn-add form-control" type="button"><span class="glyphicon glyphicon-plus"></span></button>' +
@@ -199,26 +209,32 @@
 <div class="container">
   <!-- Plates header -->
   <div class="row">
-    <div class="col-xs-5 form-group">
+    <div class="col-xs-3 form-group">
       <label class="center-block">DNA plate</label>
     </div>
-    <div class="col-xs-5 form-group">
+    <div class="col-xs-3 form-group">
       <label class="center-block">Primer plate</label>
+    </div>
+    <div class="col-xs-3 form-group">
+      <label class="center-block">Targeted plate name</label>
     </div>
     <div class="col-xs-2 form-group"></div>
   </div>
   <!-- 1st row of plates -->
   <div class="tag-controls">
     <div class="entry row">
-      <div class="col-xs-5 form-group">
+      <div class="col-xs-3 form-group">
         <select class="form-control plate-select dna-plate" id='init-plate-select'>
           <option value='-1' selected>Choose a dna plate...</option>
         </select>
       </div>
-      <div class="col-xs-5 form-group">
+      <div class="col-xs-3 form-group">
         <select class="form-control plate-select primer-plate" id='init-primer-select'>
           <option value='-1' selected>Choose a primer plate...</option>
         </select>
+      </div>
+      <div class="col-xs-3 form-group">
+        <input type='text' class='form-control targeted-name'></input>
       </div>
       <div class="col-xs-1 form-group">
         <button class="btn btn-success btn-add form-control" type="button"><span class="glyphicon glyphicon-plus"></span></button>

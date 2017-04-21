@@ -20,3 +20,9 @@ function iframeform(url)
         iframe.load(function(){  $('#form'+$(this).data('time')).remove();  $(this).remove();   });
     }
 }
+
+function getTimestamp() {
+    var d = new Date();
+    var timestamp = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate() + ' ' + d.getHours() + ':' + d.getMinutes() + ':' + d.getSeconds() + '.' + d.getMilliseconds();
+    return timestamp;
+}

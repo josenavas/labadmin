@@ -146,11 +146,14 @@ class PMExtractPlateHandler(BaseHandler):
     @authenticated
     def post(self):
         plates = json_decode(self.get_argument('plates'))
+        names = json_decode(self.get_argument('names'))
         robot = self.get_argument('robot')
         tool = self.get_argument('tool')
         kit = self.get_argument('kit')
         user = self.current_user
 
-        db.extract_sample_plates(plates, user, robot, kit, tool)
+        dna_plates = db.extract_sample_plates(
+            plates, user, robot, kit, tool, names=names)
 
-        self.redirect("/pm_plate_list/")
+        self.redirect("/pm_library_prep/target_gene/?%s"
+                      % '&'.join(['plate_id=%s' % p for p in dna_plates]))

@@ -26,6 +26,7 @@ class PMSequenceHandler(BaseHandler):
 
     @authenticated
     def post(self):
+        name = self.get_argument('name')
         pool_id = self.get_argument('pool_id')
         platform = self.get_argument('platform')
         instrument_model = self.get_argument('instrument_model')
@@ -39,7 +40,8 @@ class PMSequenceHandler(BaseHandler):
 
         run_id, jira_links = create_sequencing_run(
             pool_id, self.get_current_user(), reagent_type, reagent_lot,
-            platform, instrument_model, assay, fwd_cycles, rev_cycles)
+            platform, instrument_model, assay, fwd_cycles, rev_cycles,
+            name=name)
 
         run = db.read_sequencing_run(run_id)
         self.render("pm_sequence_success.html", run=run, jira_links=jira_links)
