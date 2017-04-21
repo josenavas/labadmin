@@ -3528,8 +3528,18 @@ class KniminAccess(object):
             else:
                 names = sample_plate_ids
 
+            # this sql will be used within the for loops, thus outside
+            sql_update = """UPDATE pm.sample_plate_layout
+                            SET sample_id = 'BLANK'
+                            WHERE sample_plate_id = %s AND name IS NULL
+                            AND sample_id IS NULL"""
             for p_id, name in zip_longest(sample_plate_ids, names,
                                           fillvalue=None):
+                # making sure the plates have all samples and if not adding
+                # blanks
+                TRN.add(sql_update, [p_id])
+                TRN.execute()
+
                 TRN.add(sql, [email, name, p_id, robot_id,
                               kit_lot_id, tool_id, notes])
                 dna_plates.append(TRN.execute_fetchlast())
@@ -3975,6 +3985,18 @@ class KniminAccess(object):
                     "%d shotgun_index_id doesn't exist" % shotgun_index_id)
 
             return dict(r[0])
+
+    def get_shotgun_index_technology_list(self):
+        """Returns the list of available shotgun index technology
+
+        Returns
+        -------
+        list of str
+        """
+        with TRN:
+            sql = """SELECT name FROM pm.shotgun_index_tech"""
+            TRN.add(sql)
+            return TRN.execute_fetchflatten()
 
     def generate_i5_i7_indexes(self, idx_tech, num_samples):
         """Pick barcodes for shotgun

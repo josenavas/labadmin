@@ -1,5 +1,9 @@
 import datetime
 
+import numpy as np
+
+from knimin import db
+
 
 def format_epmotion_file(volumes, destination):
     """Formats the contents of an EPMotion file
@@ -25,6 +29,66 @@ def format_epmotion_file(volumes, destination):
             val = "%.3f" % volumes[i][j]
             contents.append(
                 ",".join(['1', source, '1', destination, val, '1']))
+    return "\n".join(contents)
+
+
+def _well(i, j):
+    return "%s%d" % (chr(ord('A') + i), j + 1)
+
+
+def format_index_echo_pick_list(idx_layout, volume):
+    """Formats the contents of an echo indexing pick list file
+
+    Parameters
+    ----------
+    idx_layout: 2d numpy array of ints
+        The per well index information
+    volume : float
+        The volume of the index to add in nL
+
+    Returns
+    -------
+    str
+        The contents of the echo pick list file
+    """
+    # Add the headers
+    contents = ['Source Plate Name,Source Plate Type,Source Well,'
+                'Concentration,Transfer Volume,Destination Plate Name,'
+                'Destination Well']
+    idx_layout = np.asarray(idx_layout, dtype=np.int)
+    rows, cols = idx_layout.shape
+
+    i5contents = []
+    i7contents = []
+    vol = "%.3f" % volume
+
+    for i in range(rows):
+        for j in range(cols):
+            if idx_layout[i, j] != 0:
+                idx_info = db.get_shotgun_index_information(idx_layout[i, j])
+                dest = _well(i, j)
+
+                i7row = idx_info['i7_row']
+                i7col = idx_info['i7_col']
+                i7source = _well(i7row, i7col)
+
+                i7contents.append(','.join(
+                    ['IndexSourcei7', '384LDV_AQ_B2_HT', i7source, "",
+                     vol, 'IndexedDNAPlate', dest]))
+
+                if idx_info['dual_index'] and not idx_info['i5_i7_sameplate']:
+                    # In this case we have to add more information for the
+                    # second index (i5).
+                    i5row = idx_info['i5_row']
+                    i5col = idx_info['i5_col']
+                    i5source = _well(i5row, i5col)
+
+                    i5contents.append(','.join(
+                        ['IndexSourcei5', '384LDV_AQ_B2_HT', i5source, "",
+                         vol, 'IndexedDNAPlate', dest]))
+
+    contents.extend(i7contents)
+    contents.extend(i5contents)
     return "\n".join(contents)
 
 
@@ -67,6 +131,33 @@ def format_normalization_echo_pick_list(vol_sample, vol_water):
             contents.append(
                 ",".join(['1', '384LDV_AQ_B2_HT', well_name, "",
                           val, 'NormalizedDNA', well_name]))
+
+    return "\n".join(contents)
+
+
+def format_pooling_echo_pick_list(vol_sample):
+    """Format the contents of an echo pooling pick list
+
+    Parameters
+    ----------
+    vol_sample : 2d numpy array of floats
+        The per well sample volume
+    """
+    contents = ['Source Plate Name,Source Plate Type,Source Well,'
+                'Concentration,Transfer Volume,Destination Plate Name,'
+                'Destination Well']
+    # Write the sample transfer volumes
+    rows, cols = vol_sample.shape
+    for i in range(rows):
+        for j in range(cols):
+            well_name = "%s%d" % (chr(ord('A') + i), j+1)
+            # Machine will round, so just give it enough info to do the
+            # correct rounding. The desination well is A1 because we're pooling
+            # samples
+            val = "%.2f" % vol_sample[i][j]
+            contents.append(
+                ",".join(['1', '384LDV_AQ_B2_HT', well_name, "",
+                          val, 'NormalizedDNA', 'A1']))
 
     return "\n".join(contents)
 
